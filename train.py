@@ -479,6 +479,7 @@ def train(hyp, opt, device, tb_writer=None):
                 del ckpt
 
         # end epoch ----------------------------------------------------------------------------------------------------
+        torch.cuda.empty_cache()
     # end training
     if rank in [-1, 0]:
         # Plots

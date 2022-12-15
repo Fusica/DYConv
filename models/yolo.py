@@ -78,7 +78,7 @@ class Detect(nn.Module):
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
-        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
+        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)], indexing='xy')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
     def convert(self, z):
@@ -191,7 +191,7 @@ class IDetect(nn.Module):
             
     @staticmethod
     def _make_grid(nx=20, ny=20):
-        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
+        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)], indexing='xy')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
     def convert(self, z):
@@ -304,7 +304,7 @@ class IKeypoint(nn.Module):
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
-        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
+        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)], indexing='xy')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
 
@@ -414,7 +414,7 @@ class IAuxDetect(nn.Module):
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
-        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
+        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)], indexing='xy')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
     def convert(self, z):
@@ -501,7 +501,7 @@ class IBin(nn.Module):
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
-        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
+        yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)], indexing='xy')
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
 
@@ -815,7 +815,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='yolov7_so.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='yolov7.yaml', help='model.yaml')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--profile', action='store_true', help='profile model speed')
     opt = parser.parse_args()
