@@ -10,7 +10,8 @@ import numpy as np
 # print(grid_x)
 # print(grid_y)
 
-input = torch.randn(1, 128, 160, 160)
+a = torch.zeros(1, 128, 1, 1)
+print(a.shape)
 
 
 class Test(nn.Module):
@@ -22,7 +23,7 @@ class Test(nn.Module):
         return self.cv(x)
 
 
-test = Test()
-output = test(input)
-
-print(output.shape)
+# test = Test()
+# output = test(input)
+#
+# print(output.shape)

@@ -1,0 +1,17 @@
+# COCO 2017 dataset http://cocodataset.org
+
+# download command/URL (optional)
+#download: bash ./scripts/get_coco.sh
+
+# train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
+train: ../datasets/DOTA/images/train-v1.0/
+val: ../datasets/DOTA/images/val-v1.0/
+test: ../datasets/DOTA/images/test-v1.0/
+
+# number of classes
+nc: 15
+
+# class names
+names: [ 'plane', 'baseball-diamond', 'bridge', 'ground-track-field', 'small-vehicle', 'large-vehicle', 'ship',
+         'tennis-court', 'basketball-court', 'storage-tank',  'soccer-ball-field', 'roundabout', 'harbor',
+         'swimming-pool', 'helicopter' ]

@@ -70,7 +70,7 @@ class SigmoidBin(nn.Module):
 
     def forward(self, pred):
         assert pred.shape[-1] == self.length, 'pred.shape[-1]=%d is not equal to self.length=%d' % (
-        pred.shape[-1], self.length)
+            pred.shape[-1], self.length)
 
         pred_reg = (pred[..., 0] * self.reg_scale - self.reg_scale / 2.0) * self.step
         pred_bin = pred[..., 1:(1 + self.bin_count)]
@@ -88,9 +88,9 @@ class SigmoidBin(nn.Module):
 
     def training_loss(self, pred, target):
         assert pred.shape[-1] == self.length, 'pred.shape[-1]=%d is not equal to self.length=%d' % (
-        pred.shape[-1], self.length)
+            pred.shape[-1], self.length)
         assert pred.shape[0] == target.shape[0], 'pred.shape=%d is not equal to the target.shape=%d' % (
-        pred.shape[0], target.shape[0])
+            pred.shape[0], target.shape[0])
         device = pred.device
 
         pred_reg = (pred[..., 0].sigmoid() * self.reg_scale - self.reg_scale / 2.0) * self.step
@@ -558,6 +558,8 @@ class ComputeLoss:
 
 
 class ComputeLossOTA:
+    sort_obj_iou = True
+
     # Compute losses
     def __init__(self, model, autobalance=False):
         super(ComputeLossOTA, self).__init__()
@@ -572,7 +574,7 @@ class ComputeLossOTA:
         self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
 
         # Focal loss
-        g = h['fl_gamma']  # focal loss gamma
+        g = h['fl_gamma']  # focal loss gamma(Didn't use in yolov7)
         if g > 0:
             BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
 
@@ -610,7 +612,13 @@ class ComputeLossOTA:
                 lbox += (1.0 - iou).mean()  # iou loss
 
                 # Objectness
-                tobj[b, a, gj, gi] = (1.0 - self.gr) + self.gr * iou.detach().clamp(0).type(tobj.dtype)  # iou ratio
+                iou = iou.detach().clamp(0).type(tobj.dtype)
+                if self.sort_obj_iou:
+                    j = iou.argsort()
+                    b, a, gj, gi, iou = b[j], a[j], gj[j], gi[j], iou[j]
+                if self.gr < 1:
+                    iou = (1.0 - self.gr) + self.gr * iou
+                tobj[b, a, gj, gi] = iou  # iou ratio
 
                 # Classification
                 selected_tcls = targets[i][:, 1].long()
