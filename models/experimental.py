@@ -1,9 +1,11 @@
-import numpy as np
 import random
+import time
+
+import numpy as np
 import torch
 import torch.nn as nn
 
-from models.common import Conv, DWConv
+from models.common import Conv
 from utils.google_utils import attempt_download
 
 
@@ -81,11 +83,9 @@ class Ensemble(nn.ModuleList):
         return y, None  # inference, train output
 
 
-
-
-
 class ORT_NMS(torch.autograd.Function):
     '''ONNX-Runtime NMS operation'''
+
     @staticmethod
     def forward(ctx,
                 boxes,
@@ -110,18 +110,19 @@ class ORT_NMS(torch.autograd.Function):
 
 class TRT_NMS(torch.autograd.Function):
     '''TensorRT NMS operation'''
+
     @staticmethod
     def forward(
-        ctx,
-        boxes,
-        scores,
-        background_class=-1,
-        box_coding=1,
-        iou_threshold=0.45,
-        max_output_boxes=100,
-        plugin_version="1",
-        score_activation=0,
-        score_threshold=0.25,
+            ctx,
+            boxes,
+            scores,
+            background_class=-1,
+            box_coding=1,
+            iou_threshold=0.45,
+            max_output_boxes=100,
+            plugin_version="1",
+            score_activation=0,
+            score_threshold=0.25,
     ):
         batch_size, num_boxes, num_classes = scores.shape
         num_det = torch.randint(0, max_output_boxes, (batch_size, 1), dtype=torch.int32)
@@ -158,25 +159,26 @@ class TRT_NMS(torch.autograd.Function):
 
 class ONNX_ORT(nn.Module):
     '''onnx module with ONNX-Runtime NMS operation.'''
+
     def __init__(self, max_obj=100, iou_thres=0.45, score_thres=0.25, max_wh=640, device=None, n_classes=80):
         super().__init__()
         self.device = device if device else torch.device("cpu")
         self.max_obj = torch.tensor([max_obj]).to(device)
         self.iou_threshold = torch.tensor([iou_thres]).to(device)
         self.score_threshold = torch.tensor([score_thres]).to(device)
-        self.max_wh = max_wh # if max_wh != 0 : non-agnostic else : agnostic
+        self.max_wh = max_wh  # if max_wh != 0 : non-agnostic else : agnostic
         self.convert_matrix = torch.tensor([[1, 0, 1, 0], [0, 1, 0, 1], [-0.5, 0, 0.5, 0], [0, -0.5, 0, 0.5]],
                                            dtype=torch.float32,
                                            device=self.device)
-        self.n_classes=n_classes
+        self.n_classes = n_classes
 
     def forward(self, x):
         boxes = x[:, :, :4]
         conf = x[:, :, 4:5]
         scores = x[:, :, 5:]
         if self.n_classes == 1:
-            scores = conf # for models with one class, cls_loss is 0 and cls_conf is always 0.5,
-                                 # so there is no need to multiplicate.
+            scores = conf  # for models with one class, cls_loss is 0 and cls_conf is always 0.5,
+            # so there is no need to multiplicate.
         else:
             scores *= conf  # conf = obj_conf * cls_conf
         boxes @= self.convert_matrix
@@ -192,9 +194,11 @@ class ONNX_ORT(nn.Module):
         X = X.unsqueeze(1).float()
         return torch.cat([X, selected_boxes, selected_categories, selected_scores], 1)
 
+
 class ONNX_TRT(nn.Module):
     '''onnx module with TensorRT NMS operation.'''
-    def __init__(self, max_obj=100, iou_thres=0.45, score_thres=0.25, max_wh=None ,device=None, n_classes=80):
+
+    def __init__(self, max_obj=100, iou_thres=0.45, score_thres=0.25, max_wh=None, device=None, n_classes=80):
         super().__init__()
         assert max_wh is None
         self.device = device if device else torch.device('cpu')
@@ -205,18 +209,19 @@ class ONNX_TRT(nn.Module):
         self.plugin_version = '1'
         self.score_activation = 0
         self.score_threshold = score_thres
-        self.n_classes=n_classes
+        self.n_classes = n_classes
 
     def forward(self, x):
         boxes = x[:, :, :4]
         conf = x[:, :, 4:5]
         scores = x[:, :, 5:]
         if self.n_classes == 1:
-            scores = conf # for models with one class, cls_loss is 0 and cls_conf is always 0.5,
-                                 # so there is no need to multiplicate.
+            scores = conf  # for models with one class, cls_loss is 0 and cls_conf is always 0.5,
+            # so there is no need to multiplicate.
         else:
             scores *= conf  # conf = obj_conf * cls_conf
-        num_det, det_boxes, det_scores, det_classes = TRT_NMS.apply(boxes, scores, self.background_class, self.box_coding,
+        num_det, det_boxes, det_scores, det_classes = TRT_NMS.apply(boxes, scores, self.background_class,
+                                                                    self.box_coding,
                                                                     self.iou_threshold, self.max_obj,
                                                                     self.plugin_version, self.score_activation,
                                                                     self.score_threshold)
@@ -225,10 +230,11 @@ class ONNX_TRT(nn.Module):
 
 class End2End(nn.Module):
     '''export onnx or tensorrt model with NMS operation.'''
+
     def __init__(self, model, max_obj=100, iou_thres=0.45, score_thres=0.25, max_wh=None, device=None, n_classes=80):
         super().__init__()
         device = device if device else torch.device('cpu')
-        assert isinstance(max_wh,(int)) or max_wh is None
+        assert isinstance(max_wh, (int)) or max_wh is None
         self.model = model.to(device)
         self.model.model[-1].end2end = True
         self.patch_model = ONNX_TRT if max_wh is None else ONNX_ORT
@@ -241,9 +247,6 @@ class End2End(nn.Module):
         return x
 
 
-
-
-
 def attempt_load(weights, map_location=None):
     # Loads an ensemble of models weights=[a,b,c] or a single model weights=[a] or weights=a
     model = Ensemble()
@@ -251,7 +254,7 @@ def attempt_load(weights, map_location=None):
         attempt_download(w)
         ckpt = torch.load(w, map_location=map_location)  # load
         model.append(ckpt['ema' if ckpt.get('ema') else 'model'].float().fuse().eval())  # FP32 model
-    
+
     # Compatibility updates
     for m in model.modules():
         if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:
@@ -260,7 +263,7 @@ def attempt_load(weights, map_location=None):
             m.recompute_scale_factor = None  # torch 1.11.0 compatibility
         elif type(m) is Conv:
             m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
-    
+
     if len(model) == 1:
         return model[-1]  # return model
     else:
@@ -270,3 +273,61 @@ def attempt_load(weights, map_location=None):
         return model  # return ensemble
 
 
+class stripConv(nn.Module):
+    def __init__(self, c1, c2, k=7, s=1, p=3, act=True):
+        super().__init__()
+        self.cv1 = nn.Conv2d(c1, c2, (k, 1), stride=s, padding=(p, 0), groups=c2)
+        self.cv2 = nn.Conv2d(c1, c2, (1, k), stride=s, padding=(0, p), groups=c2)
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.bn = nn.BatchNorm2d(c2)
+
+    def forward(self, x):
+        return self.act(self.bn(self.cv2(self.cv1(x))))
+
+
+class stripMP(nn.Module):
+    def __init__(self, c1, c2, k=7, s=1, p=3, act=True):
+        super().__init__()
+        self.mp1 = nn.MaxPool2d((k, 1), stride=s, padding=(p, 0))
+        self.mp2 = nn.MaxPool2d((1, k), stride=s, padding=(0, p))
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.bn = nn.BatchNorm2d(c2)
+
+    def forward(self, x):
+        return self.act(self.bn(self.mp2(self.mp1(x))))
+
+
+class MSCA(nn.Module):
+    def __init__(self, c1, c2, act=True):
+        super().__init__()
+        self.c1 = c1
+        self.c2 = c2
+        self.cv = nn.Conv2d(c1, c2, 1)
+        self.cv1 = nn.Conv2d(c2, c2, 5, 1, 2, groups=c2)
+        # self.cv2 = nn.Conv2d(c2, c2, (7, 1), padding=(3, 0))
+        # self.cv3 = nn.Conv2d(c2, c2, (1, 7), padding=(0, 3))
+        self.cv2 = stripMP(c2, c2)
+        self.cv4 = nn.Conv2d(c2, c2, 1)
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.bn = nn.BatchNorm2d(c2)
+
+    def forward(self, x):
+        if self.c1 != self.c2:
+            x = self.cv(x)
+        u = x.clone()
+        x1 = self.act(self.bn(self.cv1(x)))
+        x2 = self.cv2(x1)
+        x3 = self.cv2(x2)
+        x4 = self.cv2(x3)
+        x_o = x1 + x2 + x3 + x4
+        x_o = self.act(self.bn(self.cv4(x_o)))
+        return x_o * u
+
+
+input = torch.randn(1, 128, 160, 160)
+test = MSCA(128, 256)
+start = time.time()
+output = test(input)
+end = time.time()
+print(output.shape)
+print(end - start)

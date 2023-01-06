@@ -1,4 +1,5 @@
 import math
+import time
 from copy import copy
 from pathlib import Path
 
@@ -2039,3 +2040,12 @@ class ST2CSPC(nn.Module):
         return self.cv4(torch.cat((y1, y2), dim=1))
 
 ##### end of swin transformer v2 #####   
+
+
+# input = torch.randn(1, 128, 160, 160)
+# test = SPPF(128, 256)
+# start = time.time()
+# output = test(input)
+# end = time.time()
+# print(output.shape)
+# print(end - start)
