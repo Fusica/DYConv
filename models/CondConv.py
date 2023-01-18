@@ -12,7 +12,7 @@ class Attention(nn.Module):
         self.net = nn.Conv2d(in_planes, K, kernel_size=1, bias=False)
         self.sigmoid = nn.Sigmoid()
 
-        if (init_weight):
+        if init_weight:
             self._initialize_weights()
 
     def _initialize_weights(self):
@@ -32,7 +32,8 @@ class Attention(nn.Module):
 
 
 class CondConv(nn.Module):
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0, dilation=1, grounps=1, bias=True, K=4,
+    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0, dilation=1, grounps=1, bias=True,
+                 num_exp=4,
                  init_weight=True):
         super().__init__()
         self.in_planes = in_planes
@@ -43,35 +44,39 @@ class CondConv(nn.Module):
         self.dilation = dilation
         self.groups = grounps
         self.bias = bias
-        self.K = K
+        self.num_exp = num_exp
         self.init_weight = init_weight
-        self.attention = Attention(in_planes=in_planes, K=K, init_weight=init_weight)
+        self.attention = Attention(in_planes=in_planes, K=num_exp, init_weight=init_weight)
 
-        self.weight = nn.Parameter(torch.randn(K, out_planes, in_planes // grounps, kernel_size, kernel_size),
+        self.weight = nn.Parameter(torch.randn(num_exp, out_planes, in_planes // grounps, kernel_size, kernel_size),
                                    requires_grad=True)
-        if (bias):
-            self.bias = nn.Parameter(torch.randn(K, out_planes), requires_grad=True)
+        self.bn = nn.BatchNorm2d(out_planes)
+        self.act = nn.ReLU()
+        if bias:
+            self.bias = nn.Parameter(torch.randn(num_exp, out_planes), requires_grad=True)
         else:
             self.bias = None
 
-        if (self.init_weight):
+        if self.init_weight:
             self._initialize_weights()
 
-
     def _initialize_weights(self):
-        for i in range(self.K):
+        for i in range(self.num_exp):
             nn.init.kaiming_uniform_(self.weight[i])
 
     def forward(self, x):
         bs, in_planels, h, w = x.shape
         softmax_att = self.attention(x)  # bs,K
         x = x.view(1, -1, h, w)
-        weight = self.weight.view(self.K, -1)  # K,-1
+        weight = self.weight.view(self.num_exp, -1)  # K,-1
+        """
+        Combination
+        """
         aggregate_weight = torch.mm(softmax_att, weight).view(bs * self.out_planes, self.in_planes // self.groups,
                                                               self.kernel_size, self.kernel_size)  # bs*out_p,in_p,k,k
 
-        if (self.bias is not None):
-            bias = self.bias.view(self.K, -1)  # K,out_p
+        if self.bias is not None:
+            bias = self.bias.view(self.num_exp, -1)  # K,out_p
             aggregate_bias = torch.mm(softmax_att, bias).view(-1)  # bs,out_p
             output = F.conv2d(x, weight=aggregate_weight, bias=aggregate_bias, stride=self.stride, padding=self.padding,
                               groups=self.groups * bs, dilation=self.dilation)
@@ -80,12 +85,12 @@ class CondConv(nn.Module):
                               groups=self.groups * bs, dilation=self.dilation)
 
         output = output.view(bs, self.out_planes, h, w)
-        return output
+        return self.act(self.bn(output))
 
 
 if __name__ == '__main__':
     input = torch.randn(1, 128, 160, 160)
-    m = CondConv(in_planes=128, out_planes=256, kernel_size=7, stride=1, padding=3, bias=False, K=4)
+    m = CondConv(in_planes=128, out_planes=256, kernel_size=7, stride=1, padding=3, bias=False, num_exp=4)
     start = time.time()
     out = m(input)
     end = time.time()

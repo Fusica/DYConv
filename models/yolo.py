@@ -764,13 +764,13 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                  RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC,
                  Ghost, GhostCSPA, GhostCSPB, GhostCSPC,
                  SwinTransformerBlock, STCSPA, STCSPB, STCSPC,
-                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, ODConv2d, FMAPool]:
+                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, ODConv2d, FMAPool, SPPCSPCCond]:
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
 
             args = [c1, c2, *args[1:]]
-            if m in [DownC, SPPCSPC, SPPFCSPC, GhostSPPCSPC,
+            if m in [DownC, SPPCSPC, SPPFCSPC, SPPCSPCCond, GhostSPPCSPC,
                      BottleneckCSPA, BottleneckCSPB, BottleneckCSPC,
                      RepBottleneckCSPA, RepBottleneckCSPB, RepBottleneckCSPC,
                      ResCSPA, ResCSPB, ResCSPC,
@@ -820,7 +820,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='../cfg/training/yolov7_so_MSCA.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='../cfg/training/yolov7_so_Cond.yaml', help='model.yaml')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--profile', action='store_true', help='profile model speed')
     opt = parser.parse_args()

@@ -13,6 +13,7 @@ from torchvision.ops import DeformConv2d
 from PIL import Image
 from torch.cuda import amp
 
+from models.CondConv import CondConv
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, increment_path, xyxy2xywh
 from utils.plots import color_list, plot_one_box
@@ -270,6 +271,27 @@ class SPPCSPC(nn.Module):
         self.cv3 = Conv(c_, c_, 3, 1)
         self.cv4 = Conv(c_, c_, 1, 1)
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
+        self.cv5 = Conv(4 * c_, c_, 1, 1)
+        self.cv6 = Conv(c_, c_, 3, 1)
+        self.cv7 = Conv(2 * c_, c2, 1, 1)
+
+    def forward(self, x):
+        x1 = self.cv4(self.cv3(self.cv1(x)))
+        y1 = self.cv6(self.cv5(torch.cat([x1] + [m(x1) for m in self.m], 1)))
+        y2 = self.cv2(x)
+        return self.cv7(torch.cat((y1, y2), dim=1))
+
+
+class SPPCSPCCond(nn.Module):
+    # CSP https://github.com/WongKinYiu/CrossStagePartialNetworks
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, k=(5, 9, 13)):
+        super(SPPCSPCCond, self).__init__()
+        c_ = int(2 * c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c1, c_, 1, 1)
+        self.cv3 = Conv(c_, c_, 3, 1, 1)
+        self.cv4 = Conv(c_, c_, 1, 1)
+        self.m = nn.ModuleList([CondConv(c_, c_, kernel_size=x, stride=1, padding=x // 2, grounps=2) for x in k])
         self.cv5 = Conv(4 * c_, c_, 1, 1)
         self.cv6 = Conv(c_, c_, 3, 1)
         self.cv7 = Conv(2 * c_, c2, 1, 1)
@@ -2042,10 +2064,10 @@ class ST2CSPC(nn.Module):
 ##### end of swin transformer v2 #####   
 
 
-# input = torch.randn(1, 128, 160, 160)
-# test = Conv(128, 256, 3, 4)
-# start = time.time()
-# output = test(input)
-# end = time.time()
-# print(output.shape)
-# print(end - start)
+input = torch.randn(1, 128, 160, 160)
+test = SPPCSPCCond(128, 256)
+start = time.time()
+output = test(input)
+end = time.time()
+print(output.shape)
+print(end - start)

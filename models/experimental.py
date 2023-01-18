@@ -337,10 +337,10 @@ class FMAPool(nn.Module):
         return self.cv(torch.concat((x1, x2), 1))
 
 
-input = torch.randn(1, 128, 160, 160)
-test = MSCA(128, 256)
-start = time.time()
-output = test(input)
-end = time.time()
-print(output.shape)
-print(end - start)
+# input = torch.randn(1, 128, 160, 160)
+# test = MSCA(128, 256)
+# start = time.time()
+# output = test(input)
+# end = time.time()
+# print(output.shape)
+# print(end - start)
