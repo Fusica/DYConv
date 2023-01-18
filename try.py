@@ -10,17 +10,11 @@ import numpy as np
 # print(grid_x)
 # print(grid_y)
 
-a = torch.zeros(1, 128, 1, 1)
-print(a.shape)
+x = torch.randn(64, 128)
+y = torch.randn(128, 256)
 
-
-class Test(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.cv = nn.Conv2d(128, 256, 3, 2, 1)
-
-    def forward(self, x):
-        return self.cv(x)
+out = torch.mm(x, y).view(-1)
+print(out.shape)
 
 
 # test = Test()

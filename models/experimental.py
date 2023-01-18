@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from models.ODConv import ODConv2d
+from models.CondConv import CondConv
 from models.common import Conv
 from utils.google_utils import attempt_download
 
@@ -276,8 +278,8 @@ def attempt_load(weights, map_location=None):
 class stripConv(nn.Module):
     def __init__(self, c1, c2, k=7, s=1, p=3, act=True):
         super().__init__()
-        self.cv1 = nn.Conv2d(c1, c2, (k, 1), stride=s, padding=(p, 0), groups=c2)
-        self.cv2 = nn.Conv2d(c1, c2, (1, k), stride=s, padding=(0, p), groups=c2)
+        self.cv1 = nn.Conv2d(c1, c2, (k, 1), stride=s, padding=(p, 0))
+        self.cv2 = nn.Conv2d(c1, c2, (1, k), stride=s, padding=(0, p))
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
         self.bn = nn.BatchNorm2d(c2)
 
@@ -303,11 +305,9 @@ class MSCA(nn.Module):
         self.c1 = c1
         self.c2 = c2
         self.cv = nn.Conv2d(c1, c2, 1)
-        self.cv1 = nn.Conv2d(c2, c2, 5, 1, 2, groups=c2)
-        # self.cv2 = nn.Conv2d(c2, c2, (7, 1), padding=(3, 0))
-        # self.cv3 = nn.Conv2d(c2, c2, (1, 7), padding=(0, 3))
-        self.cv2 = stripMP(c2, c2)
-        self.cv4 = nn.Conv2d(c2, c2, 1)
+        self.cv1 = nn.Conv2d(c2, c2, 5, 1, 2)
+        self.cv_mid = CondConv(c2, c2, 7, 1, 3, grounps=c2, bias=False)
+        self.cv3 = nn.Conv2d(c2, c2, 1)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
         self.bn = nn.BatchNorm2d(c2)
 
@@ -316,12 +316,25 @@ class MSCA(nn.Module):
             x = self.cv(x)
         u = x.clone()
         x1 = self.act(self.bn(self.cv1(x)))
-        x2 = self.cv2(x1)
-        x3 = self.cv2(x2)
-        x4 = self.cv2(x3)
+        x2 = self.cv_mid(x1)
+        x3 = self.cv_mid(x2)
+        x4 = self.cv_mid(x3)
         x_o = x1 + x2 + x3 + x4
-        x_o = self.act(self.bn(self.cv4(x_o)))
+        x_o = self.act(self.bn(self.cv3(x_o)))
         return x_o * u
+
+
+class FMAPool(nn.Module):
+    def __init__(self, c1, c2, k=2):
+        super().__init__()
+        self.mp = nn.MaxPool2d(2, 2)
+        self.ap = nn.AvgPool2d(2, 2)
+        self.cv = nn.Conv2d((2 * c1), c2, 1, 1)
+
+    def forward(self, x):
+        x1 = self.mp(x)
+        x2 = self.ap(x)
+        return self.cv(torch.concat((x1, x2), 1))
 
 
 input = torch.randn(1, 128, 160, 160)

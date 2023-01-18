@@ -2043,7 +2043,7 @@ class ST2CSPC(nn.Module):
 
 
 # input = torch.randn(1, 128, 160, 160)
-# test = SPPF(128, 256)
+# test = Conv(128, 256, 3, 4)
 # start = time.time()
 # output = test(input)
 # end = time.time()
