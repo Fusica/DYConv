@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from models.ODConv import ODConv2d
 from models.CondConv import CondConv
+from models.DynamicConv import DynamicConv
 from models.common import Conv
 from utils.google_utils import attempt_download
 
@@ -287,6 +288,16 @@ class stripConv(nn.Module):
         return self.act(self.bn(self.cv2(self.cv1(x))))
 
 
+class stripConvCond(nn.Module):
+    def __init__(self, c1, c2, k=7, s=1, p=3, act=True):
+        super().__init__()
+        self.cv1 = CondConv(c1, c2, (k, 1), stride=s, padding=(p, 0), bias=False)
+        self.cv2 = CondConv(c1, c2, (1, k), stride=s, padding=(0, p), bias=False)
+
+    def forward(self, x):
+        return self.cv2(self.cv1(x))
+
+
 class stripMP(nn.Module):
     def __init__(self, c1, c2, k=7, s=1, p=3, act=True):
         super().__init__()
@@ -306,7 +317,7 @@ class MSCA(nn.Module):
         self.c2 = c2
         self.cv = nn.Conv2d(c1, c2, 1)
         self.cv1 = nn.Conv2d(c2, c2, 5, 1, 2)
-        self.cv_mid = CondConv(c2, c2, 7, 1, 3, grounps=c2, bias=False)
+        self.cv_mid = DynamicConv(c2, c2, 5, 1, 2)
         self.cv3 = nn.Conv2d(c2, c2, 1)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
         self.bn = nn.BatchNorm2d(c2)
@@ -337,10 +348,10 @@ class FMAPool(nn.Module):
         return self.cv(torch.concat((x1, x2), 1))
 
 
-# input = torch.randn(1, 128, 160, 160)
-# test = MSCA(128, 256)
-# start = time.time()
-# output = test(input)
-# end = time.time()
-# print(output.shape)
-# print(end - start)
+input = torch.randn(1, 128, 160, 160)
+test = MSCA(128, 256)
+start = time.time()
+output = test(input)
+end = time.time()
+print(output.shape)
+print(end - start)
