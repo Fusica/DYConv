@@ -512,6 +512,7 @@ class Model(nn.Module):
     def __init__(self, cfg='yolor-csp-c.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
         super(Model, self).__init__()
         self.traced = False
+        self.t = 31
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
         else:  # is *.yaml
@@ -626,6 +627,10 @@ class Model(nn.Module):
                 dt.append((time_synchronized() - t) * 100)
                 print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
 
+            if m == 'MSCA':
+                channel = x[1]
+                m = MSCA(channel, channel, t=self.t)
+
             x = m(x)  # run
 
             y.append(x if m.i in self.save else None)  # save output
@@ -737,6 +742,11 @@ class Model(nn.Module):
     def info(self, verbose=False, img_size=640):  # print model information
         model_info(self, verbose, img_size)
 
+    def update_temp(self, epoch):
+        if epoch < 10:
+            if self.t != 1:
+                self.t -= 3
+
 
 def parse_model(d, ch):  # model_dict, input_channels(3)
     logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
@@ -820,7 +830,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='../cfg/training/yolov7_so_Cond.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='../cfg/training/yolov7_so_MSCA.yaml', help='model.yaml')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--profile', action='store_true', help='profile model speed')
     opt = parser.parse_args()

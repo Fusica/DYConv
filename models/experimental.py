@@ -5,9 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models.ODConv import ODConv2d
 from models.CondConv import CondConv
-from models.DynamicConv import DynamicConv
+from models.DynamicConv import Dynamic_conv2d
 from models.common import Conv
 from utils.google_utils import attempt_download
 
@@ -310,15 +309,26 @@ class stripMP(nn.Module):
         return self.act(self.bn(self.mp2(self.mp1(x))))
 
 
+class Dynamic(nn.Module):
+    def __init__(self, c1, c2, k=5, s=1, p=2, act=True):
+        super().__init__()
+        self.cv = Dynamic_conv2d(c1, c2, k, s, p, temperature=31)
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.bn = nn.BatchNorm2d(c2)
+
+    def forward(self, x):
+        return self.act(self.bn(self.cv(x)))
+
+
 class MSCA(nn.Module):
     def __init__(self, c1, c2, act=True):
         super().__init__()
         self.c1 = c1
         self.c2 = c2
-        self.cv = nn.Conv2d(c1, c2, 1)
-        self.cv1 = nn.Conv2d(c2, c2, 5, 1, 2)
-        self.cv_mid = DynamicConv(c2, c2, 5, 1, 2)
-        self.cv3 = nn.Conv2d(c2, c2, 1)
+        self.cv = Dynamic_conv2d(c1, c2, 1)
+        self.cv1 = Dynamic_conv2d(c2, c2, 5, 1, 2)
+        self.cv_mid = Dynamic(c2, c2)
+        self.cv3 = Dynamic_conv2d(c2, c2, 1)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
         self.bn = nn.BatchNorm2d(c2)
 
