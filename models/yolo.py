@@ -743,9 +743,9 @@ class Model(nn.Module):
         model_info(self, verbose, img_size)
 
     def update_temp(self, epoch):
-        if epoch < 10:
+        if epoch < 5:
             if self.t != 1:
-                self.t -= 3
+                self.t -= 6
 
 
 def parse_model(d, ch):  # model_dict, input_channels(3)

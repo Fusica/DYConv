@@ -41,7 +41,7 @@ class attention2d(nn.Module):
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x).view(x.size(0), -1)
-        return F.softmax(x / self.temperature, 1)
+        return F.log_softmax(x / self.temperature, 1)
 
 
 class Dynamic_conv2d(nn.Module):
