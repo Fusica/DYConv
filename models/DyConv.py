@@ -4,19 +4,20 @@ import torch
 import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as F
+from models.experimental import FMAPool
 
 
 class Attention(nn.Module):
-    def __init__(self, in_planes, out_planes, kernel_size, groups=1, reduction=0.0625, kernel_num=4, min_channel=16):
+    def __init__(self, in_planes, out_planes, kernel_size, groups=1, reduction=0.0625, temperature=1.0, kernel_num=4, min_channel=16):
         super(Attention, self).__init__()
         attention_channel = max(int(in_planes * reduction), min_channel)
         self.kernel_size = kernel_size
         self.kernel_num = kernel_num
-        self.temperature = 1.0
+        self.temperature = temperature
 
-        self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)  # Equal to nn.Linear
-        # self.bn = nn.BatchNorm2d(attention_channel)
+        self.pool = FMAPool(in_planes, in_planes)
+        self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
+        self.bn = nn.BatchNorm2d(attention_channel)
         self.relu = nn.ReLU(inplace=True)
 
         self.channel_fc = nn.Conv2d(attention_channel, in_planes, 1, bias=True)
@@ -78,16 +79,16 @@ class Attention(nn.Module):
         return kernel_attention
 
     def forward(self, x):
-        x = self.avgpool(x)
+        x = self.pool(x)
         x = self.fc(x)
-        # x = self.bn(x)
+        x = self.bn(x)
         x = self.relu(x)
         return self.func_channel(x), self.func_filter(x), self.func_spatial(x), self.func_kernel(x)
 
 
 class ODConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1,
-                 reduction=0.0625, kernel_num=4):
+                 reduction=0.0625, temperature=1.0, kernel_num=4):
         super(ODConv2d, self).__init__()
         self.in_planes = in_planes
         self.out_planes = out_planes
@@ -98,7 +99,7 @@ class ODConv2d(nn.Module):
         self.groups = groups
         self.kernel_num = kernel_num
         self.attention = Attention(in_planes, out_planes, kernel_size, groups=groups,
-                                   reduction=reduction, kernel_num=kernel_num)
+                                   reduction=reduction, temperature=temperature, kernel_num=kernel_num)
         self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size, kernel_size),
                                    requires_grad=True)
         self._initialize_weights()
@@ -144,8 +145,8 @@ class ODConv2d(nn.Module):
 
 
 if __name__ == '__main__':
-    x = torch.randn(1, 128, 160, 160)
-    model = ODConv2d(in_planes=128, out_planes=256, kernel_size=3, padding=1)
+    x = torch.randn(2, 128, 160, 160)
+    model = ODConv2d(in_planes=128, out_planes=256, kernel_size=3, padding=1, temperature=1.0)
 
     start = time.time()
     model(x)

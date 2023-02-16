@@ -321,12 +321,12 @@ class Dynamic(nn.Module):
 
 
 class MSCA(nn.Module):
-    def __init__(self, c1, c2, act=True):
+    def __init__(self, c1, c2, t, act=True):
         super().__init__()
         self.c1 = c1
         self.c2 = c2
-        self.cv = Dynamic_conv2d(c1, c2, 1)
-        self.cv1 = Dynamic_conv2d(c2, c2, 5, 1, 2)
+        self.cv = Dynamic_conv2d(c1, c2, 1, temperature=t)
+        self.cv1 = Dynamic_conv2d(c2, c2, 5, 1, 2, temperature=t)
         self.cv_mid = Dynamic(c2, c2)
         self.cv3 = Dynamic_conv2d(c2, c2, 1)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
@@ -348,8 +348,8 @@ class MSCA(nn.Module):
 class FMAPool(nn.Module):
     def __init__(self, c1, c2, k=2):
         super().__init__()
-        self.mp = nn.MaxPool2d(2, 2)
-        self.ap = nn.AvgPool2d(2, 2)
+        self.mp = nn.AdaptiveAvgPool2d(1)
+        self.ap = nn.AdaptiveMaxPool2d(1)
         self.cv = nn.Conv2d((2 * c1), c2, 1, 1)
 
     def forward(self, x):
@@ -358,10 +358,10 @@ class FMAPool(nn.Module):
         return self.cv(torch.concat((x1, x2), 1))
 
 
-input = torch.randn(1, 128, 160, 160)
-test = MSCA(128, 256)
-start = time.time()
-output = test(input)
-end = time.time()
-print(output.shape)
-print(end - start)
+# input = torch.randn(1, 128, 160, 160)
+# test = FMAPool(128, 256)
+# start = time.time()
+# output = test(input)
+# end = time.time()
+# print(output.shape)
+# print(end - start)
