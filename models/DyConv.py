@@ -17,7 +17,7 @@ class Attention(nn.Module):
 
         self.pool = FMAPool(in_planes, in_planes)
         self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
-        self.bn = nn.BatchNorm2d(attention_channel)
+        # self.bn = nn.BatchNorm2d(attention_channel)
         self.relu = nn.ReLU(inplace=True)
 
         self.channel_fc = nn.Conv2d(attention_channel, in_planes, 1, bias=True)
@@ -81,7 +81,7 @@ class Attention(nn.Module):
     def forward(self, x):
         x = self.pool(x)
         x = self.fc(x)
-        x = self.bn(x)
+        # x = self.bn(x)
         x = self.relu(x)
         return self.func_channel(x), self.func_filter(x), self.func_spatial(x), self.func_kernel(x)
 
@@ -119,10 +119,14 @@ class ODConv2d(nn.Module):
     def _forward_impl_common(self, x):
         # Multiplying channel attention (or filter attention) to weights and feature maps are equivalent,
         # while we observe that when using the latter method the models will run faster with less gpu memory cost.
+        # channel_attention: (1, 128, 1, 1)
+        # filter_attention:  (1, 256, 1, 1)
+        # spatial_attention: (1, 1, 1, 1, 3, 3)
+        # kernel_attention:  (1, 4, 1, 1, 1, 1)
         channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)
         batch_size, in_planes, height, width = x.size()
-        x = x * channel_attention
-        x = x.reshape(1, -1, height, width)
+        x = x * channel_attention  # channel_attention: (1, 128, 1, 1)
+        x = x.reshape(1, -1, height, width)  # No need?
         aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
         aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
             [-1, self.in_planes // self.groups, self.kernel_size, self.kernel_size])
@@ -145,7 +149,7 @@ class ODConv2d(nn.Module):
 
 
 if __name__ == '__main__':
-    x = torch.randn(2, 128, 160, 160)
+    x = torch.randn(1, 128, 160, 160)
     model = ODConv2d(in_planes=128, out_planes=256, kernel_size=3, padding=1, temperature=1.0)
 
     start = time.time()
