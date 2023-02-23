@@ -4,7 +4,7 @@ import torch
 import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as F
-from models.experimental import FMAPool
+from models.experimental import MAPool
 
 
 class DYReLU(nn.Module):
@@ -35,7 +35,7 @@ class Attention(nn.Module):
         self.kernel_num = kernel_num
         self.temperature = temperature
 
-        self.pool = FMAPool(in_planes, in_planes)
+        self.pool = MAPool(in_planes, in_planes)
         self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
         # self.bn = nn.BatchNorm2d(attention_channel)
         self.relu = DYReLU(attention_channel)
