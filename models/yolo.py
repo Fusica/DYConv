@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 from models.common import *
 from models.experimental import *
 from models.Funsion import *
+from models.Deformable_Conv import *
 from utils.autoanchor import check_anchor_order
 from utils.general import make_divisible, check_file, set_logging
 from utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
@@ -775,13 +776,13 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                  RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC,
                  Ghost, GhostCSPA, GhostCSPB, GhostCSPC,
                  SwinTransformerBlock, STCSPA, STCSPB, STCSPC,
-                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, SPPCSPCCond, SPPCSPC_MA]:
+                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, SPPCSPC_MA, SPPCSPC_Defor]:
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
 
             args = [c1, c2, *args[1:]]
-            if m in [DownC, SPPCSPC, SPPFCSPC, SPPCSPCCond, GhostSPPCSPC,
+            if m in [DownC, SPPCSPC, SPPFCSPC, GhostSPPCSPC,
                      BottleneckCSPA, BottleneckCSPB, BottleneckCSPC,
                      RepBottleneckCSPA, RepBottleneckCSPB, RepBottleneckCSPC,
                      ResCSPA, ResCSPB, ResCSPC,
@@ -790,7 +791,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                      RepResXCSPA, RepResXCSPB, RepResXCSPC,
                      GhostCSPA, GhostCSPB, GhostCSPC,
                      STCSPA, STCSPB, STCSPC,
-                     ST2CSPA, ST2CSPB, ST2CSPC, SPPCSPC_MA]:
+                     ST2CSPA, ST2CSPB, ST2CSPC, SPPCSPC_MA, SPPCSPC_Defor]:
                 args.insert(2, n)  # number of repeats
                 n = 1
         elif m is nn.BatchNorm2d:
@@ -831,7 +832,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='../cfg/training/yolov7_MA.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='../cfg/training/yolov7_Defor.yaml', help='model.yaml')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--profile', action='store_true', help='profile model speed')
     opt = parser.parse_args()

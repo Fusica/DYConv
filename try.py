@@ -1,6 +1,10 @@
+import time
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
+import torchvision
+
 
 # spatial_attention = torch.randn(1, 1, 1, 1, 3, 3)
 # kernel_attention = torch.randn(1, 4, 1, 1, 1, 1)
@@ -49,9 +53,6 @@ import numpy as np
 # print(output.shape)
 
 
-import torch
-import torchvision
-
 # # Define input tensor
 # input = torch.randn(1, 3, 64, 64)
 #
@@ -68,14 +69,20 @@ import torchvision
 # print(output.shape)
 
 
-input = torch.rand(4, 3, 10, 10)
-kh, kw = 3, 3
-weight = torch.rand(5, 3, kh, kw)
-# offset and mask should have the same spatial size as the output
-# of the convolution. In this case, for an input of 10, stride of 1
-# and kernel size of 3, without padding, the output size is 8
-offset = torch.rand(4, 2 * kh * kw, 8, 8)
-mask = torch.rand(4, kh * kw, 8, 8)
-out = torchvision.ops.deform_conv2d(input, offset, weight, mask=mask)
-print(out.shape)
+# input = torch.rand(4, 3, 10, 10)
+# kh, kw = 3, 3
+# weight = torch.rand(5, 3, kh, kw)
+# # offset and mask should have the same spatial size as the output
+# # of the convolution. In this case, for an input of 10, stride of 1
+# # and kernel size of 3, without padding, the output size is 8
+# offset = torch.rand(4, 2 * kh * kw, 8, 8)
+# mask = torch.rand(4, kh * kw, 8, 8)
+# out = torchvision.ops.deform_conv2d(input, offset, weight, mask=mask)
+# print(out.shape)
 
+
+# x = torch.randn(1, 128, 160, 160)
+#
+# model = torchvision.ops.DeformConv2d(128, 256, 3, 1, 1)
+# y = model(x)
+# print(y.shape())
