@@ -345,23 +345,34 @@ class MSCA(nn.Module):
         return x_o * u
 
 
-class FMAPool(nn.Module):
-    def __init__(self, c1, c2, k=2):
+class MAPool(nn.Module):
+    def __init__(self, c1, c2, kernel=2, stride=2, padding=0):
         super().__init__()
-        self.mp = nn.AdaptiveAvgPool2d(1)
-        self.ap = nn.AdaptiveMaxPool2d(1)
-        self.cv = nn.Conv2d((2 * c1), c2, 1, 1)
+        self.mp = nn.MaxPool2d(kernel, stride, padding)
+        self.ap = nn.AvgPool2d(kernel, stride, padding)
+        self.cv1 = nn.Conv2d(c1, (c1 * 2), 3, 1, 1)
+        self.cv2 = nn.Conv2d((2 * c1), c2, 1, 1)
 
     def forward(self, x):
         x1 = self.mp(x)
         x2 = self.ap(x)
-        return self.cv(torch.concat((x1, x2), 1))
+        x3 = self.cv1(x)
+        return self.cv2(x3 + torch.concat((x1, x2), 1))
 
 
-# input = torch.randn(1, 128, 160, 160)
-# test = FMAPool(128, 256)
-# start = time.time()
-# output = test(input)
-# end = time.time()
-# print(output.shape)
-# print(end - start)
+class MAdaPool(MAPool):
+    def __init__(self, c1, c2):
+        super().__init__(c1, c2)
+        self.mp = nn.AdaptiveMaxPool2d(1)
+        self.ap = nn.AdaptiveAvgPool2d(1)
+
+
+if __name__ == '__main__':
+    x = torch.randn(1, 128, 160, 160)
+    model = MAPool(128, 128, 13, 1, 6)
+
+    start = time.time()
+    y = model(x)
+    end = time.time()
+    print(y.shape)
+    print(end - start)

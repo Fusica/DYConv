@@ -7,6 +7,26 @@ import torch.nn.functional as F
 from models.experimental import FMAPool
 
 
+class DYReLU(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super(DYReLU, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // reduction, 1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels // reduction, in_channels, 1, bias=False),
+            nn.Sigmoid()
+        )
+        self.lrelu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+
+    def forward(self, x):
+        out = self.avg_pool(x).view(x.size(0), x.size(1))
+        out = self.fc(out).view(x.size(0), x.size(1), 1, 1)
+        out = x * out.expand_as(x)
+        out = self.lrelu(out)
+        return out
+
+
 class Attention(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, groups=1, reduction=0.0625, temperature=1.0, kernel_num=4, min_channel=16):
         super(Attention, self).__init__()
@@ -18,7 +38,7 @@ class Attention(nn.Module):
         self.pool = FMAPool(in_planes, in_planes)
         self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
         # self.bn = nn.BatchNorm2d(attention_channel)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = DYReLU(attention_channel)
 
         self.channel_fc = nn.Conv2d(attention_channel, in_planes, 1, bias=True)
         self.func_channel = self.get_channel_attention
@@ -150,7 +170,7 @@ class ODConv2d(nn.Module):
 
 if __name__ == '__main__':
     x = torch.randn(1, 128, 160, 160)
-    model = ODConv2d(in_planes=128, out_planes=256, kernel_size=3, padding=1, temperature=1.0)
+    model = DYReLU(128)
 
     start = time.time()
     model(x)

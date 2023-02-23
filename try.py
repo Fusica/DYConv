@@ -16,22 +16,66 @@ import numpy as np
 # print(y.shape)
 
 
-t3 = torch.arange(1, 257).reshape(4, 4, 4, 4)
-print(t3)
-# tensor([[[ 1,  2,  3],
-#         [ 4,  5,  6],
-#         [ 7,  8,  9]],
+# t3 = torch.arange(1, 257).reshape(4, 4, 4, 4)
+# print(t3)
+# # tensor([[[ 1,  2,  3],
+# #         [ 4,  5,  6],
+# #         [ 7,  8,  9]],
+#
+# #        [[10, 11, 12],
+# #         [13, 14, 15],
+# #         [16, 17, 18]],
+#
+# #        [[19, 20, 21],
+# #         [22, 23, 24],
+# #         [25, 26, 27]]])
+#
+#
+# print(t3[:, :, ::3, ::3])
+# '''索引第二个矩阵，行和列都是每隔两个取一个'''
+# # tensor([[10, 12],
+# #        [16, 18]])
 
-#        [[10, 11, 12],
-#         [13, 14, 15],
-#         [16, 17, 18]],
 
-#        [[19, 20, 21],
-#         [22, 23, 24],
-#         [25, 26, 27]]])
+# import torch
+#
+# # x = torch.tensor([[1, 2], [3, 4]])
+# # y = x.expand_as(torch.zeros(2, 2, 2, 2))
+# # print(y)
+#
+# m = nn.AdaptiveMaxPool2d(7)
+# input = torch.randn(1, 64, 10, 9)
+# output = m(input)
+# print(output.shape)
 
 
-print(t3[:, :, ::3, ::3])
-'''索引第二个矩阵，行和列都是每隔两个取一个'''
-# tensor([[10, 12],
-#        [16, 18]])
+import torch
+import torchvision
+
+# # Define input tensor
+# input = torch.randn(1, 3, 64, 64)
+#
+# # Define convolutional filter
+# filter = torch.randn(8, 3, 3, 3)
+#
+# # Define offset tensor
+# offset = torch.randn(1, 8, 64, 64, 2)
+#
+# # Perform deformable convolution
+# output = torchvision.ops.deform_conv2d(input, filter, offset)
+#
+# # Print output tensor shape
+# print(output.shape)
+
+
+input = torch.rand(4, 3, 10, 10)
+kh, kw = 3, 3
+weight = torch.rand(5, 3, kh, kw)
+# offset and mask should have the same spatial size as the output
+# of the convolution. In this case, for an input of 10, stride of 1
+# and kernel size of 3, without padding, the output size is 8
+offset = torch.rand(4, 2 * kh * kw, 8, 8)
+mask = torch.rand(4, kh * kw, 8, 8)
+out = torchvision.ops.deform_conv2d(input, offset, weight, mask=mask)
+print(out.shape)
+
