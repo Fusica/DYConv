@@ -360,16 +360,20 @@ class MAPool(nn.Module):
         return self.cv2(x3 + torch.concat((x1, x2), 1))
 
 
-class MAdaPool(MAPool):
+class MAdaPool(nn.Module):
     def __init__(self, c1, c2):
-        super().__init__(c1, c2)
+        super().__init__()
         self.mp = nn.AdaptiveMaxPool2d(1)
         self.ap = nn.AdaptiveAvgPool2d(1)
+        self.cv = nn.Conv2d(2 * c1, c2, 3, 1, 1)
+
+    def forward(self, x):
+        return self.cv(torch.concat((self.mp(x), self.ap(x)), dim=1))
 
 
 if __name__ == '__main__':
     x = torch.randn(1, 128, 160, 160)
-    model = MAPool(128, 128, 13, 1, 6)
+    model = MAdaPool(128, 128)
 
     start = time.time()
     y = model(x)

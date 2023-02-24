@@ -1,4 +1,5 @@
 import math
+import time
 from copy import copy
 from pathlib import Path
 
@@ -2079,10 +2080,12 @@ class ST2CSPC(nn.Module):
 ##### end of swin transformer v2 #####
 
 
-# input = torch.randn(1, 128, 160, 160)
-# test = SPPCSPCCond(128, 256)
-# start = time.time()
-# output = test(input)
-# end = time.time()
-# print(output.shape)
-# print(end - start)
+if __name__ == '__main__':
+    x = torch.randn(1, 128, 160, 160)
+    model = SPPCSPC(128, 128)
+
+    start = time.time()
+    y = model(x)
+    end = time.time()
+    print(y.shape)
+    print(end - start)

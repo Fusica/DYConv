@@ -1,30 +1,38 @@
 import time
-
+import thop
 import torch
 import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as F
-from models.experimental import MAPool
+from models.experimental import MAPool, MAdaPool
+from models.Deformable_Conv import *
+from models.ODConv import *
 
 
-class DYReLU(nn.Module):
-    def __init__(self, in_channels, reduction=16):
-        super(DYReLU, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+class Attention_Fusion(nn.Module):
+    def __init__(self, c1, c2):
+        super().__init__()
+        c_ = c1 + c2
         self.fc = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // reduction, 1, bias=False),
+            nn.Linear(c_, c_ // 16),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels // reduction, in_channels, 1, bias=False),
+            nn.Linear(c_ // 16, c_),
             nn.Sigmoid()
         )
-        self.lrelu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
 
-    def forward(self, x):
-        out = self.avg_pool(x).view(x.size(0), x.size(1))
-        out = self.fc(out).view(x.size(0), x.size(1), 1, 1)
-        out = x * out.expand_as(x)
-        out = self.lrelu(out)
-        return out
+    def forward(self, channel_att, filter_att):
+        b = channel_att.size(0)
+        c_c, f_c = channel_att.size(1), filter_att.size(1)
+        att = torch.cat((channel_att, filter_att), dim=1).view(b, -1)
+        att = self.fc(att).view(b, -1, 1, 1)
+        att = torch.split(att, [c_c, f_c], dim=1)
+        score_1 = torch.sum(att[0], dim=1, keepdim=True)
+        score_2 = torch.sum(att[1], dim=1, keepdim=True)
+        score = torch.cat((score_1, score_2), dim=1)
+        score = F.softmax(score / 30, dim=1)
+        w_1 = score[:, 0, :, :].view(b, 1, 1, 1)
+        w_2 = score[:, 1, :, :].view(b, 1, 1, 1)
+        return w_1, w_2
 
 
 class Attention(nn.Module):
@@ -35,10 +43,10 @@ class Attention(nn.Module):
         self.kernel_num = kernel_num
         self.temperature = temperature
 
-        self.pool = MAPool(in_planes, in_planes)
+        self.pool = MAdaPool(in_planes, in_planes)
         self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
         # self.bn = nn.BatchNorm2d(attention_channel)
-        self.relu = DYReLU(attention_channel)
+        self.relu = nn.ReLU()
 
         self.channel_fc = nn.Conv2d(attention_channel, in_planes, 1, bias=True)
         self.func_channel = self.get_channel_attention
@@ -52,7 +60,7 @@ class Attention(nn.Module):
         if kernel_size == 1:  # point-wise convolution
             self.func_spatial = self.skip
         else:
-            self.spatial_fc = nn.Conv2d(attention_channel, kernel_size * kernel_size, 1, bias=True)
+            self.spatial_cv = Deformable_Conv2D(attention_channel, kernel_size * kernel_size, 1, 1, 0)
             self.func_spatial = self.get_spatial_attention
 
         if kernel_num == 1:
@@ -81,16 +89,16 @@ class Attention(nn.Module):
         return 1.0
 
     def get_channel_attention(self, x):
-        channel_attention = torch.sigmoid(self.channel_fc(x).view(x.size(0), -1, 1, 1) / self.temperature)
+        channel_attention = torch.sigmoid(self.channel_fc(x).view(x.size(0), -1, 1, 1))
         return channel_attention
 
     def get_filter_attention(self, x):
-        filter_attention = torch.sigmoid(self.filter_fc(x).view(x.size(0), -1, 1, 1) / self.temperature)
+        filter_attention = torch.sigmoid(self.filter_fc(x).view(x.size(0), -1, 1, 1))
         return filter_attention
 
     def get_spatial_attention(self, x):
-        spatial_attention = self.spatial_fc(x).view(x.size(0), 1, 1, 1, self.kernel_size, self.kernel_size)
-        spatial_attention = torch.sigmoid(spatial_attention / self.temperature)
+        spatial_attention = self.spatial_cv(x).view(x.size(0), 1, 1, 1, self.kernel_size, self.kernel_size)
+        spatial_attention = torch.sigmoid(spatial_attention)
         return spatial_attention
 
     def get_kernel_attention(self, x):
@@ -106,10 +114,10 @@ class Attention(nn.Module):
         return self.func_channel(x), self.func_filter(x), self.func_spatial(x), self.func_kernel(x)
 
 
-class ODConv2d(nn.Module):
+class MMDyConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1,
                  reduction=0.0625, temperature=1.0, kernel_num=4):
-        super(ODConv2d, self).__init__()
+        super(MMDyConv2d, self).__init__()
         self.in_planes = in_planes
         self.out_planes = out_planes
         self.kernel_size = kernel_size
@@ -120,6 +128,7 @@ class ODConv2d(nn.Module):
         self.kernel_num = kernel_num
         self.attention = Attention(in_planes, out_planes, kernel_size, groups=groups,
                                    reduction=reduction, temperature=temperature, kernel_num=kernel_num)
+        self.attention_fusion = Attention_Fusion(in_planes, out_planes)
         self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size, kernel_size),
                                    requires_grad=True)
         self._initialize_weights()
@@ -128,6 +137,7 @@ class ODConv2d(nn.Module):
             self._forward_impl = self._forward_impl_pw1x
         else:
             self._forward_impl = self._forward_impl_common
+
 
     def _initialize_weights(self):
         for i in range(self.kernel_num):
@@ -145,15 +155,15 @@ class ODConv2d(nn.Module):
         # kernel_attention:  (1, 4, 1, 1, 1, 1)
         channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)
         batch_size, in_planes, height, width = x.size()
-        x = x * channel_attention  # channel_attention: (1, 128, 1, 1)
-        x = x.reshape(1, -1, height, width)  # No need?
+        w1, w2 = self.attention_fusion(channel_attention, filter_attention)
+        x = w1 * x * channel_attention  # channel_attention: (1, 128, 1, 1)
         aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
         aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
             [-1, self.in_planes // self.groups, self.kernel_size, self.kernel_size])
         output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
                           dilation=self.dilation, groups=self.groups * batch_size)
         output = output.view(batch_size, self.out_planes, output.size(-2), output.size(-1))
-        output = output * filter_attention
+        output = w2 * output * filter_attention
         return output
 
     def _forward_impl_pw1x(self, x):
@@ -168,12 +178,24 @@ class ODConv2d(nn.Module):
         return self._forward_impl(x)
 
 
+class SPPCSPC_Dy(SPPCSPC):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, k=(5, 9, 13)):
+        super().__init__(c1, c2, n, shortcut, g, e, k)
+        c_ = int(2 * c2 * e)  # hidden channels
+
+        self.cv3 = ODConv2d(c_, c_, 3, 1, 1)
+        self.cv6 = ODConv2d(c_, c_, 3, 1, 1)
+
+
 if __name__ == '__main__':
-    x = torch.randn(1, 128, 160, 160)
-    model = DYReLU(128)
+    x = torch.randn(4, 1024, 20, 20)
+    model = SPPCSPC_Dy(1024, 512)
 
     start = time.time()
-    model(x)
+    y = model(x)
     end = time.time()
-    print(x.shape)
+    print(y.shape)
     print(end - start)
+
+    flops, params = thop.profile(model, inputs=(x,))
+    print('FLOPs: ' + str(flops) + ', Params: ' + str(params))

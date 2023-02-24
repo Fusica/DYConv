@@ -1,9 +1,8 @@
 import time
 
-import numpy as np
 import torch
 import torch.nn as nn
-import torchvision
+import torch.nn.functional as F
 
 
 # spatial_attention = torch.randn(1, 1, 1, 1, 3, 3)
@@ -86,3 +85,21 @@ import torchvision
 # model = torchvision.ops.DeformConv2d(128, 256, 3, 1, 1)
 # y = model(x)
 # print(y.shape())
+
+
+if __name__ == '__main__':
+    # model = Attention_Fusion(128, 256)
+
+    x = torch.tensor([[[[0.25]]]])
+    x1 = torch.randn(2, 2, 2, 2)
+    x2 = torch.randn(1, 256, 1, 1)
+
+    print(x)
+    print(x1)
+    print(x * x1)
+
+    # start = time.time()
+    # # y = model(x1, x2)
+    # end = time.time()
+    # print(y[0].shape)
+    # print(end - start)
