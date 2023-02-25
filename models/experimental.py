@@ -350,11 +350,14 @@ class MAPool(nn.Module):
         super().__init__()
         self.mp = nn.MaxPool2d(kernel, stride, padding)
         self.ap = nn.AvgPool2d(kernel, stride, padding)
+        self.cv1 = nn.Conv2d(c1, (c1 * 2), 3, 1, 1)
+        self.cv2 = nn.Conv2d((2 * c1), c2, 1, 1)
 
     def forward(self, x):
         x1 = self.mp(x)
         x2 = self.ap(x)
-        return x1 + x2
+        x3 = self.cv1(x)
+        return self.cv2(x3 + torch.concat((x1, x2), 1))
 
 
 class MAdaPool(nn.Module):
