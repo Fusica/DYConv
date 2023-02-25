@@ -350,14 +350,11 @@ class MAPool(nn.Module):
         super().__init__()
         self.mp = nn.MaxPool2d(kernel, stride, padding)
         self.ap = nn.AvgPool2d(kernel, stride, padding)
-        self.cv1 = nn.Conv2d(c1, (c1 * 2), 3, 1, 1)
-        self.cv2 = nn.Conv2d((2 * c1), c2, 1, 1)
 
     def forward(self, x):
         x1 = self.mp(x)
         x2 = self.ap(x)
-        x3 = self.cv1(x)
-        return self.cv2(x3 + torch.concat((x1, x2), 1))
+        return x1 + x2
 
 
 class MAdaPool(nn.Module):
@@ -373,7 +370,7 @@ class MAdaPool(nn.Module):
 
 if __name__ == '__main__':
     x = torch.randn(1, 128, 160, 160)
-    model = MAdaPool(128, 128)
+    model = MAPool(128, 128, 5, 1, 2)
 
     start = time.time()
     y = model(x)

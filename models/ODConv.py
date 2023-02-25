@@ -1,7 +1,12 @@
+import time
+
+import thop
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd
+
+from models.common import SPPCSPC
 
 
 class Attention(nn.Module):
@@ -139,3 +144,26 @@ class ODConv2d(nn.Module):
 
     def forward(self, x):
         return self._forward_impl(x)
+
+
+class SPPCSPC_OD(SPPCSPC):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, k=(5, 9, 13)):
+        super().__init__(c1, c2, n, shortcut, g, e, k)
+        c_ = int(2 * c2 * e)  # hidden channels
+
+        self.cv3 = ODConv2d(c_, c_, 3, 1, 1)
+        self.cv6 = ODConv2d(c_, c_, 3, 1, 1)
+
+
+if __name__ == '__main__':
+    x = torch.randn(4, 1024, 20, 20)
+    model = SPPCSPC_OD(1024, 512)
+
+    start = time.time()
+    y = model(x)
+    end = time.time()
+    print(y.shape)
+    print(end - start)
+
+    flops, params = thop.profile(model, inputs=(x,))
+    print('FLOPs: ' + str(flops) + ', Params: ' + str(params))

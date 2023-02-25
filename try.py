@@ -88,18 +88,14 @@ import torch.nn.functional as F
 
 
 if __name__ == '__main__':
-    # model = Attention_Fusion(128, 256)
+    model = Attention_Fusion(128, 256)
 
     x = torch.tensor([[[[0.25]]]])
-    x1 = torch.randn(2, 2, 2, 2)
-    x2 = torch.randn(1, 256, 1, 1)
+    x1 = torch.randn(4, 128, 1, 1)
+    x2 = torch.randn(4, 256, 1, 1)
 
-    print(x)
-    print(x1)
-    print(x * x1)
-
-    # start = time.time()
-    # # y = model(x1, x2)
-    # end = time.time()
-    # print(y[0].shape)
-    # print(end - start)
+    start = time.time()
+    y = model(x1, x2)
+    end = time.time()
+    print(y[0])
+    print(end - start)

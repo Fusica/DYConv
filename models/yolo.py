@@ -630,10 +630,6 @@ class Model(nn.Module):
                 dt.append((time_synchronized() - t) * 100)
                 print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
 
-            if m == 'MSCA':
-                channel = x[1]
-                m = MSCA(channel, channel, t=self.t)
-
             x = m(x)  # run
 
             y.append(x if m.i in self.save else None)  # save output
@@ -746,9 +742,10 @@ class Model(nn.Module):
         model_info(self, verbose, img_size)
 
     def update_temp(self, epoch):
-        if epoch < 5:
-            if self.t != 1:
-                self.t -= 6
+        for m in self.model:
+            if isinstance(m, SPPCSPC_Dy):
+                if epoch < 10:
+                    m.update_temperature()
 
 
 def parse_model(d, ch):  # model_dict, input_channels(3)
