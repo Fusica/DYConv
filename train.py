@@ -531,7 +531,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='yolov7_training.pt', help='initial weights path')
     parser.add_argument('--cfg', type=str, default='cfg/training/yolov7_MMELAN.yaml', help='model.yaml path')
-    parser.add_argument('--data', type=str, default='data/VisDrone.yaml', help='data.yaml path')
+    parser.add_argument('--data', type=str, default='data/coco.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.p5.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch-size', type=int, default=4, help='total batch size for all GPUs')
