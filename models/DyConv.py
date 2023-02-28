@@ -42,7 +42,7 @@ class Attention(nn.Module):
         self.kernel_num = kernel_num
         self.temperature = temperature
 
-        self.pool = MAdaPool(in_planes, in_planes)
+        self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
         # self.bn = nn.BatchNorm2d(attention_channel)
         self.relu = nn.ReLU()
@@ -56,10 +56,10 @@ class Attention(nn.Module):
             self.filter_fc = nn.Conv2d(attention_channel, out_planes, 1, bias=True)
             self.func_filter = self.get_filter_attention
 
-        if kernel_size == 1:  # point-wise convolution
+        if kernel_size[0] == 1:  # point-wise convolution
             self.func_spatial = self.skip
         else:
-            self.spatial_cv = Deformable_Conv2D(attention_channel, kernel_size * kernel_size, 1, 1, 0)
+            self.spatial_cv = Deformable_Conv2D(attention_channel, kernel_size[0] * kernel_size[1], 1, 1, 0)
             self.func_spatial = self.get_spatial_attention
 
         if kernel_num == 1:
@@ -96,7 +96,7 @@ class Attention(nn.Module):
         return filter_attention
 
     def get_spatial_attention(self, x):
-        spatial_attention = self.spatial_cv(x).view(x.size(0), 1, 1, 1, self.kernel_size, self.kernel_size)
+        spatial_attention = self.spatial_cv(x).view(x.size(0), 1, 1, 1, self.kernel_size[0], self.kernel_size[1])
         spatial_attention = torch.sigmoid(spatial_attention)
         return spatial_attention
 
@@ -114,7 +114,7 @@ class Attention(nn.Module):
 
 
 class MMDyConv2d(nn.Module):
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1,
+    def __init__(self, in_planes, out_planes, kernel_size=(3, 3), stride=1, padding=(0, 0), dilation=1, groups=1,
                  reduction=0.0625, temperature=1, kernel_num=4):
         super(MMDyConv2d, self).__init__()
         self.in_planes = in_planes
@@ -129,11 +129,11 @@ class MMDyConv2d(nn.Module):
         self.attention = Attention(in_planes, out_planes, kernel_size, groups=groups,
                                    reduction=reduction, temperature=temperature, kernel_num=kernel_num)
         self.attention_fusion = Attention_Fusion(in_planes, out_planes, temperature=temperature)
-        self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size, kernel_size),
+        self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size[0], kernel_size[1]),
                                    requires_grad=True)
         self._initialize_weights()
 
-        if self.kernel_size == 1 and self.kernel_num == 1:
+        if self.kernel_size[0] == 1 and self.kernel_num == 1:
             self._forward_impl = self._forward_impl_pw1x
         else:
             self._forward_impl = self._forward_impl_common
@@ -156,8 +156,8 @@ class MMDyConv2d(nn.Module):
         x = x.reshape(1, -1, height, width)
         aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
         aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
-            [-1, self.in_planes // self.groups, self.kernel_size, self.kernel_size])
-        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
+            [-1, self.in_planes // self.groups, self.kernel_size[0], self.kernel_size[1]])
+        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=(self.padding[0], self.padding[1]),
                           dilation=self.dilation, groups=self.groups * batch_size)
         output = output.view(batch_size, self.out_planes, output.size(-2), output.size(-1))
         output = w2 * output * filter_attention
@@ -176,7 +176,7 @@ class MMDyConv2d(nn.Module):
 
 
 class MMConv(Conv):
-    def __init__(self, c1, c2, k, s=1, p=0, temperature=1):
+    def __init__(self, c1, c2, k, s=1, p=(0, 0), temperature=1):
         super().__init__(c1, c2, k, s, p)
         self.conv = MMDyConv2d(c1, c2, k, s, p, temperature=temperature)
 
@@ -190,7 +190,7 @@ class SPPCSPC_Dy(SPPCSPC):
         # self.cv2 = MMConv(c1, c_, 1, temperature=temperature)
         self.cv3 = MMConv(c_, c_, 3, 1, 1, temperature=temperature)
         # self.cv4 = MMConv(c_, c_, 1, temperature=temperature)
-        self.m = nn.ModuleList([MAPool(c_, c_, kernel=x, stride=1, padding=x // 2) for x in k])
+        # self.m = nn.ModuleList([MAPool(c_, c_, kernel=x, stride=1, padding=x // 2) for x in k])
         # self.cv5 = MMConv(4 * c_, c_, 1, temperature=temperature)
         self.cv6 = MMConv(c_, c_, 3, 1, 1, temperature=temperature)
         # self.cv7 = MMConv(2 * c_, c2, 1, temperature=temperature)
@@ -198,17 +198,56 @@ class SPPCSPC_Dy(SPPCSPC):
     def update_temperature(self):
         if self.temperature != 1:
             self.temperature -= 3
-            print('Change temperature to:', str(self.temperature))
+            # print('Change temperature to:', str(self.temperature))
+
+
+class Dy_ELAN(nn.Module):
+    def __init__(self, c1, c2, e=0.5, temperature=31):
+        super().__init__()
+        c_ = int(c1 * e)
+        self.temperature = temperature
+        self.cv1 = Conv(c1, c1, 1)
+        self.cv2 = Conv(c1, c_, 1)
+        self.m1 = nn.Sequential(
+            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature),
+            MMConv(c_, c1, (3, 3), 1, (1, 1), temperature=temperature)
+        )
+        self.m2 = nn.Sequential(
+            MMConv(c1, c1, (5, 1), 1, (2, 0), temperature=temperature),
+            MMConv(c1, c1, (1, 5), 1, (0, 2), temperature=temperature),
+        )
+        self.m3 = nn.Sequential(
+            MMConv(c1, c1, (7, 1), 1, (3, 0), temperature=temperature),
+            MMConv(c1, c1, (1, 7), 1, (0, 3), temperature=temperature),
+        )
+        self.ma1 = MAPool(c1, c2, 9, 1, 4)
+        self.ma2 = MAPool(c1, c2, 13, 1, 6)
+        self.cv3 = Conv(6 * c1, c2, 1)
+
+    def update_temperature(self):
+        if self.temperature != 1:
+            self.temperature -= 3
+            # print('Change temperature to:', str(self.temperature))
+
+    def forward(self, x):
+        x1 = self.cv1(x)
+        x2 = self.m1(self.cv2(x))
+        x3 = self.m2(x2)
+        x4 = self.m3(x3)
+        x5 = self.ma1(x4)
+        x6 = self.ma2(x5)
+        x_all = torch.cat((x1, x2, x3, x4, x5, x6), dim=1)
+        return self.cv3(x_all)
 
 
 if __name__ == '__main__':
-    x = torch.randn(4, 1024, 20, 20)
-    model = SPPCSPC_Dy(1024, 512)
+    x = torch.randn(4, 512, 20, 20)
+    model = Dy_ELAN(512, 512)
 
     start = time.time()
-    model.update_temperature()
+    y = model(x)
     end = time.time()
-
+    print(y.shape)
     print(end - start)
 
     flops, params = thop.profile(model, inputs=(x,))

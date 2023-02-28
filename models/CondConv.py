@@ -93,7 +93,7 @@ class CondConv(nn.Module):
 
 if __name__ == '__main__':
     input = torch.randn(1, 128, 160, 160)
-    m = CondConv(in_planes=128, out_planes=256, kernel_size=(3, 3), stride=1, padding=(1, 1), bias=False, num_exp=4)
+    m = CondConv(in_planes=128, out_planes=256, kernel_size=(5, 1), stride=1, padding=(2, 0), bias=False, num_exp=4)
     start = time.time()
     out = m(input)
     end = time.time()
