@@ -743,7 +743,7 @@ class Model(nn.Module):
     def update_temp(self):
         for m in self.model:
             if isinstance(m, Dy_ELAN):
-                    m.update_temperature()
+                m.update_temperature()
 
 
 def parse_model(d, ch):  # model_dict, input_channels(3)

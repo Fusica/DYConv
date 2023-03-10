@@ -1,10 +1,8 @@
-import time
-
-import thop
 import torch
+import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.autograd
+from torch.profiler import profile, ProfilerActivity
 
 from models.common import SPPCSPC
 
@@ -102,7 +100,7 @@ class ODConv2d(nn.Module):
         self.kernel_num = kernel_num
         self.attention = Attention(in_planes, out_planes, kernel_size, groups=groups,
                                    reduction=reduction, kernel_num=kernel_num)
-        self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes//groups, kernel_size, kernel_size),
+        self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size, kernel_size),
                                    requires_grad=True)
         self._initialize_weights()
 
@@ -125,6 +123,7 @@ class ODConv2d(nn.Module):
         batch_size, in_planes, height, width = x.size()
         x = x * channel_attention
         x = x.reshape(1, -1, height, width)
+        aggregate_att = spatial_attention * kernel_attention
         aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
         aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
             [-1, self.in_planes // self.groups, self.kernel_size, self.kernel_size])
@@ -156,14 +155,11 @@ class SPPCSPC_OD(SPPCSPC):
 
 
 if __name__ == '__main__':
-    x = torch.randn(4, 1024, 20, 20)
-    model = SPPCSPC_OD(1024, 512)
+    x = torch.randn(4, 128, 160, 160)
+    model = ODConv2d(128, 128, 3, 1, 1)
 
-    start = time.time()
-    y = model(x)
-    end = time.time()
-    print(y.shape)
-    print(end - start)
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True,
+                 with_flops=True, with_stack=True) as prof:
+        model(x)
 
-    flops, params = thop.profile(model, inputs=(x,))
-    print('FLOPs: ' + str(flops) + ', Params: ' + str(params))
+    print(prof.key_averages().table(sort_by="self_cpu_time_total"))

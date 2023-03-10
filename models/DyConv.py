@@ -3,7 +3,7 @@ import torch.autograd
 from models.common import Conv
 from models.Deformable_Conv import *
 from models.ODConv import *
-from models.experimental import MAPool, MAdaPool
+# from models.experimental import MAPool, MAdaPool
 
 
 class Attention_Fusion(nn.Module):
@@ -33,6 +33,55 @@ class Attention_Fusion(nn.Module):
         return w_1, w_2
 
 
+def build_spatial_branch(in_channels, kernel_size, head=1,
+                         nonlinearity='relu', stride=1):
+    return nn.Sequential(
+        nn.Conv2d(in_channels, head * kernel_size ** 2, 1, stride=stride)
+    )
+
+
+def build_in_channel_branch(in_channels, se_ratio=0.25):
+    assert se_ratio > 0
+    mid_channels = int(in_channels * se_ratio)
+    return nn.Sequential(
+        nn.AdaptiveAvgPool2d(1),
+        nn.Conv2d(in_channels, mid_channels, 1, bias=False),
+        nn.ReLU(True),
+        nn.Conv2d(mid_channels, in_channels, 1))
+
+
+def build_out_channel_branch(in_channels, out_channels, se_ratio=0.25):
+    assert se_ratio > 0
+    mid_channels = int(in_channels * se_ratio)
+    return nn.Sequential(
+        nn.AdaptiveAvgPool2d(1),
+        nn.Conv2d(in_channels, mid_channels, 1),
+        nn.ReLU(True),
+        nn.Conv2d(mid_channels, out_channels, 1))
+
+
+class In_Channel_Att(nn.Module):
+    def __init__(self, c1):
+        super().__init__()
+        self.in_att = build_in_channel_branch(c1)
+
+    def forward(self, x):
+        in_att = torch.sigmoid(self.in_att(x))
+
+        return in_att * x
+
+
+class Out_Channel_Att(nn.Module):
+    def __init__(self, c1, c2):
+        super().__init__()
+        self.out_att = build_out_channel_branch(c1, c2)
+
+    def forward(self, x):
+        out_att = torch.sigmoid(self.out_att(x))
+
+        return out_att * x
+
+
 class Attention(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, groups=1, reduction=0.0625, temperature=1, kernel_num=4,
                  min_channel=16):
@@ -44,22 +93,12 @@ class Attention(nn.Module):
 
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
-        # self.bn = nn.BatchNorm2d(attention_channel)
         self.relu = nn.ReLU()
 
-        self.channel_fc = nn.Conv2d(attention_channel, in_planes, 1, bias=True)
-        self.func_channel = self.get_channel_attention
-
-        if in_planes == groups and in_planes == out_planes:  # depth-wise convolution
-            self.func_filter = self.skip
-        else:
-            self.filter_fc = nn.Conv2d(attention_channel, out_planes, 1, bias=True)
-            self.func_filter = self.get_filter_attention
-
-        if kernel_size[0] == 1:  # point-wise convolution
+        if kernel_size == 1:  # point-wise convolution
             self.func_spatial = self.skip
         else:
-            self.spatial_cv = Deformable_Conv2D(attention_channel, kernel_size[0] * kernel_size[1], 1, 1, 0)
+            self.spatial_fc = nn.Conv2d(attention_channel, kernel_size ** 2, 1, bias=True)
             self.func_spatial = self.get_spatial_attention
 
         if kernel_num == 1:
@@ -87,16 +126,8 @@ class Attention(nn.Module):
     def skip(_):
         return 1.0
 
-    def get_channel_attention(self, x):
-        channel_attention = torch.sigmoid(self.channel_fc(x).view(x.size(0), -1, 1, 1))
-        return channel_attention
-
-    def get_filter_attention(self, x):
-        filter_attention = torch.sigmoid(self.filter_fc(x).view(x.size(0), -1, 1, 1))
-        return filter_attention
-
     def get_spatial_attention(self, x):
-        spatial_attention = self.spatial_cv(x).view(x.size(0), 1, 1, 1, self.kernel_size[0], self.kernel_size[1])
+        spatial_attention = self.spatial_fc(x).view(x.size(0), 1, 1, 1, self.kernel_size, self.kernel_size)
         spatial_attention = torch.sigmoid(spatial_attention)
         return spatial_attention
 
@@ -108,13 +139,12 @@ class Attention(nn.Module):
     def forward(self, x):
         x = self.pool(x)
         x = self.fc(x)
-        # x = self.bn(x)
         x = self.relu(x)
-        return self.func_channel(x), self.func_filter(x), self.func_spatial(x), self.func_kernel(x)
+        return self.func_spatial(x), self.func_kernel(x)
 
 
 class MMDyConv2d(nn.Module):
-    def __init__(self, in_planes, out_planes, kernel_size=(3, 3), stride=1, padding=(0, 0), dilation=1, groups=1,
+    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, padding=0, dilation=1, groups=1,
                  reduction=0.0625, temperature=1, kernel_num=4):
         super(MMDyConv2d, self).__init__()
         self.in_planes = in_planes
@@ -128,12 +158,13 @@ class MMDyConv2d(nn.Module):
         self.kernel_num = kernel_num
         self.attention = Attention(in_planes, out_planes, kernel_size, groups=groups,
                                    reduction=reduction, temperature=temperature, kernel_num=kernel_num)
-        self.attention_fusion = Attention_Fusion(in_planes, out_planes, temperature=temperature)
-        self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size[0], kernel_size[1]),
+        self.inc_att = In_Channel_Att(in_planes)
+        self.outc_att = Out_Channel_Att(in_planes, out_planes)
+        self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size, kernel_size),
                                    requires_grad=True)
         self._initialize_weights()
 
-        if self.kernel_size[0] == 1 and self.kernel_num == 1:
+        if self.kernel_size == 1 and self.kernel_num == 1:
             self._forward_impl = self._forward_impl_pw1x
         else:
             self._forward_impl = self._forward_impl_common
@@ -149,18 +180,17 @@ class MMDyConv2d(nn.Module):
         # filter_attention:  (1, 256, 1, 1)
         # spatial_attention: (1, 1, 1, 1, 3, 3)
         # kernel_attention:  (1, 4, 1, 1, 1, 1)
-        channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)
+        spatial_attention, kernel_attention = self.attention(x)
         batch_size, in_planes, height, width = x.size()
-        w1, w2 = self.attention_fusion(channel_attention, filter_attention)
-        x = w1 * x * channel_attention  # channel_attention: (1, 128, 1, 1)
+        x = self.inc_att(x)
         x = x.reshape(1, -1, height, width)
         aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
         aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
-            [-1, self.in_planes // self.groups, self.kernel_size[0], self.kernel_size[1]])
-        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=(self.padding[0], self.padding[1]),
+            [-1, self.in_planes // self.groups, self.kernel_size, self.kernel_size])
+        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
                           dilation=self.dilation, groups=self.groups * batch_size)
         output = output.view(batch_size, self.out_planes, output.size(-2), output.size(-1))
-        output = w2 * output * filter_attention
+        output = self.outc_att(output)
         return output
 
     def _forward_impl_pw1x(self, x):
@@ -209,20 +239,15 @@ class Dy_ELAN(nn.Module):
         self.cv1 = Conv(c1, c1, 1)
         self.cv2 = Conv(c1, c_, 1)
         self.m1 = nn.Sequential(
-            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature),
-            MMConv(c_, c1, (3, 3), 1, (1, 1), temperature=temperature)
+            MMConv(c_, c_, 3, 1, 1, temperature=temperature)
         )
         self.m2 = nn.Sequential(
-            MMConv(c1, c1, (5, 1), 1, (2, 0), temperature=temperature),
-            MMConv(c1, c1, (1, 5), 1, (0, 2), temperature=temperature),
+            MMConv(c_, c_, 3, 1, 1, temperature=temperature)
         )
         self.m3 = nn.Sequential(
-            MMConv(c1, c1, (7, 1), 1, (3, 0), temperature=temperature),
-            MMConv(c1, c1, (1, 7), 1, (0, 3), temperature=temperature),
+            MMConv(c_, c_, 3, 1, 1, temperature=temperature)
         )
-        self.ma1 = MAPool(c1, c2, 9, 1, 4)
-        self.ma2 = MAPool(c1, c2, 13, 1, 6)
-        self.cv3 = Conv(6 * c1, c2, 1)
+        self.cv3 = Conv(int(c1 + 3 * c_), c2, 1)
 
     def update_temperature(self):
         if self.temperature != 1:
@@ -234,21 +259,17 @@ class Dy_ELAN(nn.Module):
         x2 = self.m1(self.cv2(x))
         x3 = self.m2(x2)
         x4 = self.m3(x3)
-        x5 = self.ma1(x4)
-        x6 = self.ma2(x5)
-        x_all = torch.cat((x1, x2, x3, x4, x5, x6), dim=1)
+        x_all = torch.cat((x1, x2, x3, x4), dim=1)
         return self.cv3(x_all)
 
 
 if __name__ == '__main__':
-    x = torch.randn(4, 512, 20, 20)
-    model = Dy_ELAN(512, 512)
+    x1 = torch.randn(4, 128, 160, 160)
+    x2 = torch.randn(4, 128, 160, 160)
+    model = Dy_ELAN(128, 128)
 
-    start = time.time()
-    y = model(x)
-    end = time.time()
-    print(y.shape)
-    print(end - start)
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True,
+                 with_flops=True, with_modules=True) as prof:
+        model(x1)
 
-    flops, params = thop.profile(model, inputs=(x,))
-    print('FLOPs: ' + str(flops) + ', Params: ' + str(params))
+    print(prof.key_averages().table(sort_by="self_cpu_time_total"))

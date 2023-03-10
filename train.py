@@ -400,6 +400,8 @@ def train(hyp, opt, device, tb_writer=None):
 
             # end batch ------------------------------------------------------------------------------------------------
             torch.cuda.empty_cache()
+        if isinstance(model, torch.nn.DataParallel):
+            model = model.module
         model.update_temp()
         # end epoch ----------------------------------------------------------------------------------------------------
 

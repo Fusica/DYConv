@@ -357,7 +357,7 @@ class MAPool(nn.Module):
         x1 = self.mp(x)
         x2 = self.ap(x)
         x3 = self.cv1(x)
-        return self.cv2(x3 + torch.concat((x1, x2), 1))
+        return self.cv2(x3 + torch.cat((x1, x2), 1))
 
 
 class MAdaPool(nn.Module):
@@ -368,7 +368,7 @@ class MAdaPool(nn.Module):
         self.cv = nn.Conv2d(2 * c1, c2, 3, 1, 1)
 
     def forward(self, x):
-        return self.cv(torch.concat((self.mp(x), self.ap(x)), dim=1))
+        return self.cv(torch.cat((self.mp(x), self.ap(x)), dim=1))
 
 
 if __name__ == '__main__':

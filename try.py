@@ -1,7 +1,9 @@
-import time
-
 import torch
 import torch.nn as nn
+from torch.profiler import profile, ProfilerActivity
+
+init_seed = 1
+torch.manual_seed(init_seed)
 
 
 # spatial_attention = torch.randn(1, 1, 1, 1, 3, 3)
@@ -158,15 +160,74 @@ class HPool(nn.Module):
         return self.cv(torch.cat((x_1, x_2), dim=1))
 
 
+def py_forward(feat, channel_att, spatial_att, kernel_size, dilation, stride, kernel_combine):
+    assert stride == 1
+    B, C, H, W = feat.shape
+    out_python = torch.zeros(B, C, H, W, requires_grad=True).double()
+    for b in range(B):
+        for c in range(C):
+            for y in range(H):
+                for x in range(W):
+                    for iy in range(kernel_size):
+                        for ix in range(kernel_size):
+                            if y + (iy - kernel_size // 2) * dilation < 0 or \
+                                    y + (iy - kernel_size // 2) * dilation >= H or \
+                                    x + (ix - kernel_size // 2) * dilation < 0 or \
+                                    x + (ix - kernel_size // 2) * dilation >= W:
+                                continue
+                            if kernel_combine == 'mul':
+                                _combined_kernel = channel_att[b, c, iy, ix] * spatial_att[
+                                    b, iy * kernel_size + ix, y, x]
+                            else:
+                                _combined_kernel = channel_att[b, c, iy, ix] + spatial_att[
+                                    b, iy * kernel_size + ix, y, x]
+                            out_python[b, c, y, x] += _combined_kernel * feat[
+                                b, c, y + (iy - kernel_size // 2) * dilation, x + (ix - kernel_size // 2) * dilation]
+    return out_python
+
+
+class involution(nn.Module):
+
+    def __init__(self, channels, kernel_size, stride):
+        super(involution, self).__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.channels = channels
+        reduction_ratio = 4
+        self.group_channels = 32
+        self.groups = self.channels // self.group_channels
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(channels, channels // reduction_ratio, 1),
+            nn.BatchNorm2d(channels // reduction_ratio),
+            nn.ReLU()
+        )
+        self.conv2 = nn.Conv2d(channels // reduction_ratio, self.groups * kernel_size ** 2, 1)
+        if stride > 1:
+            self.avgpool = nn.AvgPool2d(stride, stride)
+        self.unfold = nn.Unfold(kernel_size, 1, (kernel_size - 1) // 2, stride)
+
+    def forward(self, x):
+        weight = self.conv2(self.conv1(x if self.stride == 1 else self.avgpool(x)))
+        b, c, h, w = weight.shape
+        weight = weight.view(b, self.groups, self.kernel_size ** 2, h, w).unsqueeze(2)
+        out = self.unfold(x).view(b, self.groups, self.group_channels, self.kernel_size ** 2, h, w)
+        out = weight * out
+        out = out.sum(dim=3)
+        out = (weight * out).sum(dim=3).view(b, self.channels, h, w)
+        return out
+
+
 if __name__ == '__main__':
-    model = CoordAtt(128, 128)
+    x = torch.randn(1, 128, 160, 160)
+    model = involution(128, 3, 1)
 
-    x = torch.tensor([[[[0.25]]]])
-    x1 = torch.randn(1, 128, 160, 160)
-    x2 = torch.randn(4, 256, 1, 1)
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True, with_flops=True) as prof:
+        model(x)
 
-    start = time.time()
-    y = model(x1)
-    end = time.time()
-    print(y.shape)
-    print(end - start)
+    print(prof.key_averages().table(sort_by="self_cpu_time_total"))
+
+    # x = torch.randn(1, 2, 2, 2, 2, 2)
+    # y = x.sum(dim=3)
+    #
+    # print(x)
+    # print(y)
