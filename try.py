@@ -121,6 +121,10 @@ class CoordAtt(nn.Module):
         self.conv_h = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
         self.conv_w = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
 
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Conv2d(inp, oup, 1, bias=False)
+        self.relu = nn.ReLU()
+
     def forward(self, x):
         identity = x
 
@@ -140,6 +144,8 @@ class CoordAtt(nn.Module):
         a_w = self.conv_w(x_w).sigmoid()
 
         out = identity * a_w * a_h
+
+        out = self.pool(self.fc(self.relu(out)))
 
         return out
 
@@ -219,12 +225,13 @@ class involution(nn.Module):
 
 if __name__ == '__main__':
     x = torch.randn(1, 128, 160, 160)
-    model = involution(128, 3, 1)
+    model = CoordAtt(128, 16)
 
     with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True, with_flops=True) as prof:
-        model(x)
+        y = model(x)
 
     print(prof.key_averages().table(sort_by="self_cpu_time_total"))
+    print(y.shape)
 
     # x = torch.randn(1, 2, 2, 2, 2, 2)
     # y = x.sum(dim=3)
