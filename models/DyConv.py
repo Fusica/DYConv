@@ -4,7 +4,7 @@ from torch.nn.init import calculate_gain
 
 from models.ODConv import *
 from models.common import Conv
-from models.experimental import DSConv, MAdaPool
+from models.experimental import DSConv
 
 
 class h_sigmoid(nn.Module):
@@ -37,13 +37,13 @@ class Gating(nn.Module):
 
         self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0)
         self.bn1 = nn.BatchNorm2d(mip)
-        self.act = nn.SiLU()
+        self.act = h_swish()
         self.cv2 = nn.Conv2d(inp, oup, kernel_size=1, stride=1, padding=0)
 
         self.conv_h = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
         self.conv_w = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
 
-        self.pool = MAdaPool(2 * mip, 2 * mip)
+        self.pool = nn.AdaptiveMaxPool2d(1)
         self.fc = nn.Conv2d(2 * mip, oup, 1, bias=False)
         self.relu = nn.ReLU()
 
@@ -106,7 +106,7 @@ def build_in_channel_branch(in_channels, se_ratio=0.25):
     assert se_ratio > 0
     mid_channels = int(in_channels * se_ratio)
     return nn.Sequential(
-        MAdaPool(in_channels, in_channels),
+        nn.AdaptiveMaxPool2d(1),
         nn.Conv2d(in_channels, mid_channels, 1, bias=False),
         nn.ReLU(True),
         nn.Conv2d(mid_channels, in_channels, 1)
@@ -117,7 +117,7 @@ def build_out_channel_branch(in_channels, out_channels, se_ratio=0.25):
     assert se_ratio > 0
     mid_channels = int(in_channels * se_ratio)
     return nn.Sequential(
-        MAdaPool(in_channels, in_channels),
+        nn.AdaptiveMaxPool2d(1),
         nn.Conv2d(in_channels, mid_channels, 1),
         nn.ReLU(True),
         nn.Conv2d(mid_channels, out_channels, 1)
