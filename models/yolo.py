@@ -773,8 +773,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                  RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC,
                  Ghost, GhostCSPA, GhostCSPB, GhostCSPC,
                  SwinTransformerBlock, STCSPA, STCSPB, STCSPC,
-                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, SPPCSPC_MA, SPPCSPC_Defor, SPPCSPC_Dy,
-                 Dy_ELAN]:
+                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, SPPCSPC_MA, SPPCSPC_Defor, Dy_ELAN]:
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
@@ -789,7 +788,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                      RepResXCSPA, RepResXCSPB, RepResXCSPC,
                      GhostCSPA, GhostCSPB, GhostCSPC,
                      STCSPA, STCSPB, STCSPC,
-                     ST2CSPA, ST2CSPB, ST2CSPC, SPPCSPC_MA, SPPCSPC_Defor, SPPCSPC_Dy]:
+                     ST2CSPA, ST2CSPB, ST2CSPC, SPPCSPC_MA, SPPCSPC_Defor]:
                 args.insert(2, n)  # number of repeats
                 n = 1
         elif m is nn.BatchNorm2d:

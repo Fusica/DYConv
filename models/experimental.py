@@ -365,10 +365,21 @@ class MAdaPool(nn.Module):
         super().__init__()
         self.mp = nn.AdaptiveMaxPool2d(1)
         self.ap = nn.AdaptiveAvgPool2d(1)
-        self.cv = nn.Conv2d(2 * c1, c2, 3, 1, 1)
 
     def forward(self, x):
-        return self.cv(torch.cat((self.mp(x), self.ap(x)), dim=1))
+        return self.mp(x) + self.ap(x)
+
+
+class DSConv(nn.Module):
+    def __init__(self, c1, c2, k=3, s=1, p=1, d=1, act=True):
+        super(DSConv, self).__init__()
+        self.DConv = nn.Conv2d(c1, c1, k, s, p, d, c1)
+        self.PConv = nn.Conv2d(c1, c2, 1)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+
+    def forward(self, x):
+        return self.act(self.bn(self.PConv(self.DConv(x))))
 
 
 if __name__ == '__main__':
