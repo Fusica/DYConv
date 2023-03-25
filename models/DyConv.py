@@ -1,10 +1,22 @@
 import thop
 import torch.autograd
-from torch.nn.init import calculate_gain
 
 from models.ODConv import *
 from models.common import Conv
-from models.experimental import DSConv
+from models.experimental import DSConv, MAdaPool
+
+init_seed = 1
+torch.manual_seed(init_seed)
+
+
+class DSigmoid(nn.Module):
+    def __init__(self):
+        super(DSigmoid, self).__init__()
+        self.alpha = nn.Parameter(torch.FloatTensor(1), requires_grad=True)
+        nn.init.constant_(self.alpha, 1.5)
+
+    def forward(self, x):
+        return torch.atan(x / self.alpha) / torch.pi + 1 / 2
 
 
 class h_sigmoid(nn.Module):
@@ -25,54 +37,37 @@ class h_swish(nn.Module):
         return x * self.sigmoid(x)
 
 
-class Gating(nn.Module):
-    def __init__(self, inp, oup, reduction=32):
-        super(Gating, self).__init__()
-        self.inp = inp
-        self.oup = oup
-        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
-        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+class ChannelAttention(nn.Module):
+    def __init__(self, in_planes, ratio=16):
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
 
-        mip = max(8, inp // reduction)
+        self.fc1 = nn.Conv2d(in_planes, in_planes // 16, 1, bias=False)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Conv2d(in_planes // 16, in_planes, 1, bias=False)
 
-        self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0)
-        self.bn1 = nn.BatchNorm2d(mip)
-        self.act = h_swish()
-        self.cv2 = nn.Conv2d(inp, oup, kernel_size=1, stride=1, padding=0)
-
-        self.conv_h = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
-        self.conv_w = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
-
-        self.pool = nn.AdaptiveMaxPool2d(1)
-        self.fc = nn.Conv2d(2 * mip, oup, 1, bias=False)
-        self.relu = nn.ReLU()
+        self.sigmoid = DSigmoid()
 
     def forward(self, x):
-        if self.inp == self.oup:
-            identity = x
-        else:
-            identity = self.cv2(x)
+        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
+        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
+        out = avg_out + max_out
+        return self.sigmoid(out)
 
-        n, c, h, w = x.size()
-        x_h = self.pool_h(x)
-        x_w = self.pool_w(x).permute(0, 1, 3, 2)
 
-        y = torch.cat([x_h, x_w], dim=2)
-        y = self.conv1(y)
-        y = self.bn1(y)
-        y = self.act(y)
+class Gating(nn.Module):
+    def __init__(self, c1, c2, ratio=16, kernel_size=7):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super(Gating, self).__init__()
+        self.channel_attention = ChannelAttention(c1, ratio)
 
-        x_h, x_w = torch.split(y, [h, w], dim=2)
-        x_w = x_w.permute(0, 1, 3, 2)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Conv2d(c1, c2, 1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
 
-        a_h = self.conv_h(x_h).sigmoid()
-        a_w = self.conv_w(x_w).sigmoid()
-
-        out = identity * a_w * a_h
-
-        out = self.relu(self.fc(self.pool(out)))
-
-        return out
+    def forward(self, x):
+        out = self.channel_attention(x) * x
+        return self.relu(self.fc(self.avgpool(out)))
 
 
 class Attention_Fusion(nn.Module):
@@ -84,7 +79,7 @@ class Attention_Fusion(nn.Module):
             nn.Linear(c_, c_ // 16),
             nn.ReLU(inplace=True),
             nn.Linear(c_ // 16, c_),
-            nn.Sigmoid()
+            DSigmoid()
         )
 
     def forward(self, channel_att, filter_att):
@@ -106,7 +101,7 @@ def build_in_channel_branch(in_channels, se_ratio=0.25):
     assert se_ratio > 0
     mid_channels = int(in_channels * se_ratio)
     return nn.Sequential(
-        nn.AdaptiveMaxPool2d(1),
+        MAdaPool(in_channels, in_channels),
         nn.Conv2d(in_channels, mid_channels, 1, bias=False),
         nn.ReLU(True),
         nn.Conv2d(mid_channels, in_channels, 1)
@@ -117,8 +112,8 @@ def build_out_channel_branch(in_channels, out_channels, se_ratio=0.25):
     assert se_ratio > 0
     mid_channels = int(in_channels * se_ratio)
     return nn.Sequential(
-        nn.AdaptiveMaxPool2d(1),
-        nn.Conv2d(in_channels, mid_channels, 1),
+        MAdaPool(in_channels, in_channels),
+        nn.Conv2d(in_channels, mid_channels, 1, bias=False),
         nn.ReLU(True),
         nn.Conv2d(mid_channels, out_channels, 1)
     )
@@ -128,9 +123,10 @@ class In_Channel_Att(nn.Module):
     def __init__(self, c1):
         super().__init__()
         self.in_att = build_in_channel_branch(c1)
+        self.sigmoid = DSigmoid()
 
     def forward(self, x):
-        in_att = torch.sigmoid(self.in_att(x))
+        in_att = self.sigmoid(self.in_att(x))
 
         return in_att
 
@@ -139,9 +135,10 @@ class Out_Channel_Att(nn.Module):
     def __init__(self, c1, c2):
         super().__init__()
         self.out_att = build_out_channel_branch(c1, c2)
+        self.sigmoid = DSigmoid()
 
     def forward(self, x):
-        out_att = torch.sigmoid(self.out_att(x))
+        out_att = self.sigmoid(self.out_att(x))
 
         return out_att
 
@@ -156,6 +153,7 @@ class Attention(nn.Module):
         self.temperature = temperature
 
         self.gating = Gating(in_planes, attention_channel)
+        self.sigmoid = DSigmoid()
 
         if kernel_size[0] == 1:  # point-wise convolution
             self.func_spatial = self.skip
@@ -190,7 +188,7 @@ class Attention(nn.Module):
 
     def get_spatial_attention(self, x):
         spatial_attention = self.spatial_fc(x).view(x.size(0), 1, 1, 1, self.kernel_size[0], self.kernel_size[1])
-        spatial_attention = torch.sigmoid(spatial_attention)
+        spatial_attention = self.sigmoid(spatial_attention)
         return spatial_attention
 
     def get_kernel_attention(self, x):
@@ -221,8 +219,9 @@ class MMDyConv2d(nn.Module):
         self.inc_att = In_Channel_Att(in_planes)
         self.outc_att = Out_Channel_Att(in_planes, out_planes)
         self.fuse = Attention_Fusion(in_planes, out_planes, temperature)
-        self.weight = nn.Parameter(torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size[0], kernel_size[1]),
-                                   requires_grad=True)
+        self.weight = nn.Parameter(
+            torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size[0], kernel_size[1]),
+            requires_grad=True)
         self._initialize_weights()
 
         if self.kernel_size[0] == 1 and self.kernel_num == 1:
@@ -239,6 +238,7 @@ class MMDyConv2d(nn.Module):
         # while we observe that when using the latter method the models will run faster with less gpu memory cost.
         # spatial_attention: (1, 1, 1, 1, 3, 3)
         # kernel_attention:  (1, 4, 1, 1, 1, 1)
+        identity = x
         spatial_attention, kernel_attention = self.attention(x)
         batch_size, in_planes, height, width = x.size()
         channel_att = self.inc_att(x)
@@ -246,10 +246,12 @@ class MMDyConv2d(nn.Module):
         w_1, w_2 = self.fuse(channel_att, filter_att)
         x = w_1 * x
         x = x.reshape(1, -1, height, width)
+
         aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
         aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
             [-1, self.in_planes // self.groups, self.kernel_size[0], self.kernel_size[1]])
-        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=(self.padding[0], self.padding[1]),
+        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride,
+                          padding=(self.padding[0], self.padding[1]),
                           dilation=self.dilation, groups=self.groups * batch_size)
         output = output.view(batch_size, self.out_planes, output.size(-2), output.size(-1))
         output = w_2 * output
@@ -258,7 +260,8 @@ class MMDyConv2d(nn.Module):
     def _forward_impl_pw1x(self, x):
         channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)
         x = x * channel_attention
-        output = F.conv2d(x, weight=self.weight.squeeze(dim=0), bias=None, stride=self.stride, padding=(self.padding[0], self.padding[1]),
+        output = F.conv2d(x, weight=self.weight.squeeze(dim=0), bias=None, stride=self.stride,
+                          padding=(self.padding[0], self.padding[1]),
                           dilation=self.dilation, groups=self.groups)
         output = output * filter_attention
         return output
@@ -281,19 +284,13 @@ class Dy_ELAN(nn.Module):
         self.cv1 = nn.Conv2d(c1, c1, 1)
         self.cv2 = Conv(c1, c_, 1)
         self.m1 = nn.Sequential(
-            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature),
-            nn.BatchNorm2d(c_),
-            nn.ReLU()
+            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
         )
         self.m2 = nn.Sequential(
-            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature),
-            nn.BatchNorm2d(c_),
-            nn.ReLU()
+            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
         )
         self.m3 = nn.Sequential(
-            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature),
-            nn.BatchNorm2d(c_),
-            nn.ReLU()
+            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
         )
         self.m4 = DSConv(c_, c_, 13, 1, 6)
         self.cv3 = Conv(4 * c_, c_, 1)
@@ -320,12 +317,12 @@ class Dy_ELAN(nn.Module):
 
 if __name__ == '__main__':
     in1 = torch.randn(4, 128, 160, 160)
-    in2 = torch.randn(4, 128, 160, 160)
+    in2 = torch.randn(4, 4, 64, 64, 3, 3)
     model = Dy_ELAN(128, 128)
 
     with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True,
                  with_flops=True, with_modules=True) as prof:
-        model(in1)
+        y = model(in1)
 
     print(prof.key_averages().table(sort_by="self_cpu_time_total"))
 

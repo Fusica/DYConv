@@ -1,3 +1,4 @@
+import math
 import random
 import time
 
@@ -383,11 +384,17 @@ class DSConv(nn.Module):
 
 
 if __name__ == '__main__':
-    x = torch.randn(1, 128, 160, 160)
-    model = MAPool(128, 128, 5, 1, 2)
+    # x = torch.randn(1, 128, 160, 160)
+    # model = MAPool(128, 128, 5, 1, 2)
 
-    start = time.time()
-    y = model(x)
-    end = time.time()
-    print(y.shape)
-    print(end - start)
+    x2 = torch.empty(size=(2*16, 1))
+
+    stdv = 1. / math.sqrt(x2.size(1))
+    x2.data.uniform_(-stdv, stdv)
+    print(stdv)
+    #
+    # start = time.time()
+    # y = model(x)
+    # end = time.time()
+    # print(y.shape)
+    # print(end - start)
