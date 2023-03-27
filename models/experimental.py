@@ -8,7 +8,7 @@ import torch.nn as nn
 
 from models.CondConv import CondConv
 from models.DynamicConv import Dynamic_conv2d
-from models.common import Conv
+from models.common import Conv, DReLU, MetaReLU
 from utils.google_utils import attempt_download
 
 
@@ -377,7 +377,7 @@ class DSConv(nn.Module):
         self.DConv = nn.Conv2d(c1, c1, k, s, p, d, c1)
         self.PConv = nn.Conv2d(c1, c2, 1)
         self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.act = MetaReLU(c2) if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
     def forward(self, x):
         return self.act(self.bn(self.PConv(self.DConv(x))))

@@ -2,21 +2,8 @@ import thop
 import torch.autograd
 
 from models.ODConv import *
-from models.common import Conv
+from models.common import Conv, MetaReLU, DSigmoid, MetaReLU
 from models.experimental import DSConv, MAdaPool
-
-init_seed = 1
-torch.manual_seed(init_seed)
-
-
-class DSigmoid(nn.Module):
-    def __init__(self):
-        super(DSigmoid, self).__init__()
-        self.alpha = nn.Parameter(torch.FloatTensor(1), requires_grad=True)
-        nn.init.constant_(self.alpha, 1.5)
-
-    def forward(self, x):
-        return torch.atan(x / self.alpha) / torch.pi + 1 / 2
 
 
 class h_sigmoid(nn.Module):
@@ -44,7 +31,7 @@ class ChannelAttention(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d(1)
 
         self.fc1 = nn.Conv2d(in_planes, in_planes // 16, 1, bias=False)
-        self.relu1 = nn.ReLU()
+        self.relu1 = MetaReLU(in_planes // 16)
         self.fc2 = nn.Conv2d(in_planes // 16, in_planes, 1, bias=False)
 
         self.sigmoid = DSigmoid()
@@ -63,7 +50,7 @@ class Gating(nn.Module):
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Conv2d(c1, c2, 1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = MetaReLU(c2)
 
     def forward(self, x):
         out = self.channel_attention(x) * x
@@ -281,8 +268,16 @@ class Dy_ELAN(nn.Module):
         super().__init__()
         c_ = int(c1 * e)
         self.temperature = temperature
-        self.cv1 = nn.Conv2d(c1, c1, 1)
-        self.cv2 = Conv(c1, c_, 1)
+        self.cv1 = nn.Sequential(
+            nn.Conv2d(c1, c1, 1, bias=False),
+            nn.BatchNorm2d(c1),
+            MetaReLU(c1)
+        )
+        self.cv2 = nn.Sequential(
+            nn.Conv2d(c1, c_, 1, bias=False),
+            nn.BatchNorm2d(c_),
+            MetaReLU(c_)
+        )
         self.m1 = nn.Sequential(
             MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
         )
@@ -293,8 +288,16 @@ class Dy_ELAN(nn.Module):
             MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
         )
         self.m4 = DSConv(c_, c_, 13, 1, 6)
-        self.cv3 = Conv(4 * c_, c_, 1)
-        self.cv4 = Conv(2 * c_, c2, 1)
+        self.cv3 = nn.Sequential(
+            nn.Conv2d(4 * c_, c_, 1, bias=False),
+            nn.BatchNorm2d(c_),
+            MetaReLU(c_)
+        )
+        self.cv4 = nn.Sequential(
+            nn.Conv2d(2 * c_, c2, 1, bias=False),
+            nn.BatchNorm2d(c2),
+            MetaReLU(c2)
+        )
 
     def update_temperature(self):
         if self.temperature != 1:

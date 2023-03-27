@@ -4,8 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.profiler import profile, ProfilerActivity
 
-from models.common import SPPCSPC
-
 
 class Attention(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, groups=1, reduction=0.0625, kernel_num=4, min_channel=16):
@@ -143,15 +141,6 @@ class ODConv2d(nn.Module):
 
     def forward(self, x):
         return self._forward_impl(x)
-
-
-class SPPCSPC_OD(SPPCSPC):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, k=(5, 9, 13)):
-        super().__init__(c1, c2, n, shortcut, g, e, k)
-        c_ = int(2 * c2 * e)  # hidden channels
-
-        self.cv3 = ODConv2d(c_, c_, 3, 1, 1)
-        self.cv6 = ODConv2d(c_, c_, 3, 1, 1)
 
 
 if __name__ == '__main__':

@@ -12,15 +12,59 @@ import torch.nn.functional as F
 from PIL import Image
 from torch.cuda import amp
 
-from models.CondConv import CondConv
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, increment_path, xyxy2xywh
 from utils.plots import color_list, plot_one_box
 from utils.torch_utils import time_synchronized
 
 
-##### basic ####
+##### acts ####
+class DSigmoid(nn.Module):
+    def __init__(self):
+        super(DSigmoid, self).__init__()
+        self.alpha = nn.Parameter(torch.randn(1), requires_grad=True)
+        nn.init.constant_(self.alpha, torch.pi / 2)
 
+    def forward(self, x):
+        return torch.atan(x / self.alpha) / torch.pi + 1 / 2
+
+
+class DReLU(nn.Module):
+    def __init__(self, c1):
+        super().__init__()
+        self.p1 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
+        self.p2 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
+        self.beta = nn.Parameter(torch.ones(1, c1, 1, 1), requires_grad=True)
+        self.sigmoid = DSigmoid()
+
+    def forward(self, x):
+        dpx = (self.p1 - self.p2) * x
+        return dpx * self.sigmoid(dpx) + self.p2 * x
+
+
+class MetaReLU(nn.Module):
+    def __init__(self, width, r=16):
+        super().__init__()
+        self.fc1 = nn.Conv2d(width, max(r, width // r), kernel_size=1, stride=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(max(r, width // r))
+        self.fc2 = nn.Conv2d(max(r, width // r), width, kernel_size=1, stride=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(width)
+
+        self.act = nn.Hardsigmoid()
+
+        self.p1 = nn.Parameter(torch.randn(1, width, 1, 1))
+        nn.init.constant_(self.p1, torch.math.e)
+        self.p2 = nn.Parameter(torch.randn(1, width, 1, 1))
+        nn.init.constant_(self.p1, torch.math.e)
+
+    def forward(self, x):
+        var = self.p1 / self.p2
+        beta = self.act(
+            self.bn2(self.fc2(self.bn1(self.fc1(x.mean(dim=2, keepdims=True).mean(dim=3, keepdims=True))))))
+        return var * x * self.act(beta * (var * x)) + torch.log(var) * x
+
+
+##### basic ####
 def autopad(k, p=None):  # kernel, padding
     # Pad to 'same'
     if p is None:
@@ -1350,7 +1394,7 @@ class RepConv_OREPA(nn.Module):
                                             1:2] ** 2).sum()  # The L2 loss of the "circle" of weights in 3x3 kernel. Use regular L2 on them.
         eq_kernel = K3[:, :, 1:2, 1:2] * t3 + K1 * t1  # The equivalent resultant central point of 3x3 kernel.
         l2_loss_eq_kernel = (eq_kernel ** 2 / (
-                    t3 ** 2 + t1 ** 2)).sum()  # Normalize for an L2 coefficient comparable to regular L2.
+                t3 ** 2 + t1 ** 2)).sum()  # Normalize for an L2 coefficient comparable to regular L2.
         return l2_loss_eq_kernel + l2_loss_circle
 
     def get_equivalent_kernel_bias(self):
@@ -2076,6 +2120,7 @@ class ST2CSPC(nn.Module):
         y1 = self.cv3(self.m(self.cv1(x)))
         y2 = self.cv2(x)
         return self.cv4(torch.cat((y1, y2), dim=1))
+
 
 ##### end of swin transformer v2 #####
 
