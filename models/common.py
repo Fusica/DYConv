@@ -50,18 +50,16 @@ class MetaReLU(nn.Module):
         self.fc2 = nn.Conv2d(max(r, width // r), width, kernel_size=1, stride=1, bias=False)
         self.bn2 = nn.BatchNorm2d(width)
 
-        self.act = nn.Hardsigmoid()
+        self.act = DSigmoid()
 
         self.p1 = nn.Parameter(torch.randn(1, width, 1, 1))
-        nn.init.constant_(self.p1, torch.math.e)
         self.p2 = nn.Parameter(torch.randn(1, width, 1, 1))
-        nn.init.constant_(self.p1, torch.math.e)
 
     def forward(self, x):
-        var = self.p1 / self.p2
+        dpx = (self.p1 - self.p2) * x
         beta = self.act(
             self.bn2(self.fc2(self.bn1(self.fc1(x.mean(dim=2, keepdims=True).mean(dim=3, keepdims=True))))))
-        return var * x * self.act(beta * (var * x)) + torch.log(var) * x
+        return dpx * self.act(beta * dpx) + self.p1 * self.p2 * x
 
 
 ##### basic ####
