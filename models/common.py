@@ -34,7 +34,6 @@ class DReLU(nn.Module):
         super().__init__()
         self.p1 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
         self.p2 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
-        self.beta = nn.Parameter(torch.ones(1, c1, 1, 1), requires_grad=True)
         self.sigmoid = DSigmoid()
 
     def forward(self, x):
