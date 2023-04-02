@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.profiler import profile, ProfilerActivity
 
-from models.common import Conv, DSigmoid, DReLU
+from models.common import DSigmoid, DReLU
 from models.experimental import DSConv
 
 
@@ -22,54 +22,76 @@ class Attention_Fusion(nn.Module):
         )
 
     def forward(self, channel_att, filter_att):
-        b = channel_att.size(0)
-        c_c, f_c = channel_att.size(1), filter_att.size(1)
-        att = torch.cat((channel_att, filter_att), dim=1).view(b, -1)
-        att = self.fc(att).view(b, -1, 1, 1)
-        att = torch.split(att, [c_c, f_c], dim=1)
-        score_1 = torch.sum(att[0], dim=1, keepdim=True)
-        score_2 = torch.sum(att[1], dim=1, keepdim=True)
-        score = torch.cat((score_1, score_2), dim=1)
-        score = F.softmax(score / self.temperature, dim=1)
-        w_1 = score[:, 0, :, :].view(b, 1, 1, 1)
-        w_2 = score[:, 1, :, :].view(b, 1, 1, 1)
-        return w_1, w_2
+        if isinstance(filter_att, float):
+            return 1.0, 1.0
+        else:
+            b = channel_att.size(0)
+            c_c, f_c = channel_att.size(1), filter_att.size(1)
+            att = torch.cat((channel_att, filter_att), dim=1).view(b, -1)
+            att = self.fc(att).view(b, -1, 1, 1)
+            att = torch.split(att, [c_c, f_c], dim=1)
+            score_1 = torch.sum(att[0], dim=1, keepdim=True)
+            score_2 = torch.sum(att[1], dim=1, keepdim=True)
+            score = torch.cat((score_1, score_2), dim=1)
+            score = F.softmax(score / self.temperature, dim=1)
+            w_1 = score[:, 0, :, :].view(b, 1, 1, 1)
+            w_2 = score[:, 1, :, :].view(b, 1, 1, 1)
+            return w_1, w_2
 
 
-class TransformerLayer(nn.Module):
-    # Transformer layer https://arxiv.org/abs/2010.11929 (LayerNorm layers removed for better performance)
-    def __init__(self, c, num_heads):
-        super().__init__()
-        self.q = nn.Linear(c, c, bias=False)
-        self.k = nn.Linear(c, c, bias=False)
-        self.v = nn.Linear(c, c, bias=False)
-        self.ma = nn.MultiheadAttention(embed_dim=c, num_heads=num_heads)
-        self.fc1 = nn.Linear(c, c, bias=False)
-        self.fc2 = nn.Linear(c, c, bias=False)
+
+class h_sigmoid(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_sigmoid, self).__init__()
+        self.relu = nn.ReLU6(inplace=inplace)
 
     def forward(self, x):
-        x = self.ma(self.q(x), self.k(x), self.v(x))[0] + x
-        x = self.fc2(self.fc1(x)) + x
-        return x
+        return self.relu(x + 3) / 6
+
+
+class h_swish(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_swish, self).__init__()
+        self.sigmoid = h_sigmoid(inplace=inplace)
+
+    def forward(self, x):
+        return x * self.sigmoid(x)
 
 
 class Spatial_attn(nn.Module):
-    # Vision Transformer https://arxiv.org/abs/2010.11929
-    def __init__(self, c1, c2, num_heads, num_layers):
-        super().__init__()
-        self.conv = None
-        if c1 != c2:
-            self.conv = Conv(c1, c2)
-        self.linear = nn.Linear(c2, c2)  # learnable position embedding
-        self.tr = nn.Sequential(*(TransformerLayer(c2, num_heads) for _ in range(num_layers)))
-        self.c2 = c2
+    def __init__(self, inp, oup, reduction=32):
+        super(Spatial_attn, self).__init__()
+        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
+        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+
+        mip = max(8, inp // reduction)
+
+        self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0)
+        self.bn1 = nn.BatchNorm2d(mip)
+        self.act = h_swish()
+
+        self.conv_h = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
+        self.conv_w = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
-        if self.conv is not None:
-            x = self.conv(x)
-        b, _, w, h = x.shape
-        p = x.flatten(2).permute(2, 0, 1)
-        return self.tr(p + self.linear(p)).permute(1, 2, 0).reshape(b, self.c2, w, h)
+        n, c, h, w = x.size()
+        x_h = self.pool_h(x)
+        x_w = self.pool_w(x).permute(0, 1, 3, 2)
+
+        y = torch.cat([x_h, x_w], dim=2)
+        y = self.conv1(y)
+        y = self.bn1(y)
+        y = self.act(y)
+
+        x_h, x_w = torch.split(y, [h, w], dim=2)
+        x_w = x_w.permute(0, 1, 3, 2)
+
+        a_h = self.conv_h(x_h).sigmoid()
+        a_w = self.conv_w(x_w).sigmoid()
+
+        out = a_w * a_h
+
+        return out
 
 
 class Channel_attn(nn.Module):
@@ -169,7 +191,7 @@ class MMDyConv2d(nn.Module):
         self.attention = Channel_attn(in_planes, out_planes, kernel_size, groups=groups,
                                       reduction=reduction, temperature=temperature, kernel_num=kernel_num)
         self.fuse = Attention_Fusion(in_planes, out_planes, temperature)
-        self.spatial_attn = Spatial_attn(in_planes, out_planes, 4, 4)
+        self.spatial_attn = Spatial_attn(in_planes, out_planes)
         self.weight = nn.Parameter(
             torch.randn(kernel_num, out_planes, in_planes // groups, kernel_size[0], kernel_size[1]),
             requires_grad=True)
@@ -190,7 +212,7 @@ class MMDyConv2d(nn.Module):
         # spatial_attention: (1, 1, 1, 1, 3, 3)
         # kernel_attention:  (1, 4, 1, 1, 1, 1)
         spatial_attn = self.spatial_attn(x)
-        channel_attention, filter_attention, spatial_attention, kernel_attention, = self.attention(x)
+        channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)
         batch_size, in_planes, height, width = x.size()
         w_1, w_2 = self.fuse(channel_attention, filter_attention)
         x = w_1 * x
@@ -285,10 +307,34 @@ class Dy_ELAN(nn.Module):
         return self.cv4(x_all)
 
 
+class InceptionDY(nn.Module):
+    """ Inception depthweise convolution
+    """
+
+    def __init__(self, c1, c2, square_kernel_size=3, band_kernel_size=11, branch_ratio=0.125):
+        super().__init__()
+
+        gc = int(c1 * branch_ratio)  # channel numbers of a convolution branch
+        self.dwconv_hw = MMDyConv2d(gc, gc, (square_kernel_size, square_kernel_size),
+                                    padding=(square_kernel_size // 2, square_kernel_size // 2))
+        self.dwconv_w = nn.Conv2d(gc, gc, kernel_size=(1, band_kernel_size), padding=(0, band_kernel_size // 2),
+                                  groups=gc)
+        self.dwconv_h = nn.Conv2d(gc, gc, kernel_size=(band_kernel_size, 1), padding=(band_kernel_size // 2, 0),
+                                  groups=gc)
+        self.split_indexes = [c1 - 3 * gc, gc, gc, gc]
+
+    def forward(self, x):
+        x_id, x_hw, x_w, x_h = torch.split(x, self.split_indexes, dim=1)
+        return torch.cat(
+            (x_id, self.dwconv_hw(x_hw), self.dwconv_w(x_w), self.dwconv_h(x_h)),
+            dim=1,
+        )
+
+
 if __name__ == '__main__':
     in1 = torch.randn(4, 1024, 20, 20)
     in2 = torch.randn(4, 4, 64, 64, 3, 3)
-    model = Dy_ELAN(1024, 1024)
+    model = InceptionDY(1024, 1024)
 
     with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True,
                  with_flops=True, with_modules=True) as prof:
