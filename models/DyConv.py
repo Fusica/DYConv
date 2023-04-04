@@ -3,6 +3,7 @@ import torch
 import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as F
+from timm.models.layers.helpers import to_2tuple
 from torch.profiler import profile, ProfilerActivity
 
 from models.common import DSigmoid, DReLU
@@ -311,12 +312,13 @@ class InceptionDY(nn.Module):
     """ Inception depthweise convolution
     """
 
-    def __init__(self, c1, c2, square_kernel_size=3, band_kernel_size=11, branch_ratio=0.125):
+    def __init__(self, c1, c2, square_kernel_size=3, band_kernel_size=11, branch_ratio=0.125, temperature=31):
         super().__init__()
 
+        self.temperature = temperature
         gc = int(c1 * branch_ratio)  # channel numbers of a convolution branch
         self.dwconv_hw = MMDyConv2d(gc, gc, (square_kernel_size, square_kernel_size),
-                                    padding=(square_kernel_size // 2, square_kernel_size // 2))
+                                    padding=(square_kernel_size // 2, square_kernel_size // 2), temperature=temperature)
         self.dwconv_w = nn.Conv2d(gc, gc, kernel_size=(1, band_kernel_size), padding=(0, band_kernel_size // 2),
                                   groups=gc)
         self.dwconv_h = nn.Conv2d(gc, gc, kernel_size=(band_kernel_size, 1), padding=(band_kernel_size // 2, 0),
@@ -330,11 +332,59 @@ class InceptionDY(nn.Module):
             dim=1,
         )
 
+    def update_temperature(self):
+        if self.temperature != 1:
+            self.temperature -= 2
+            print("temperature changed to {}".format(self.temperature))
+
+
+class ConvMlp(nn.Module):
+    """ MLP using 1x1 convs that keeps spatial dims
+    copied from timm: https://github.com/huggingface/pytorch-image-models/blob/v0.6.11/timm/models/layers/mlp.py
+    """
+    def __init__(
+            self, in_features, hidden_features=None, out_features=None,
+            norm_layer=None, bias=True, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        bias = to_2tuple(bias)
+
+        self.fc1 = nn.Conv2d(in_features, hidden_features, kernel_size=1, bias=bias[0])
+        self.norm = norm_layer(hidden_features) if norm_layer else nn.Identity()
+        self.act = DReLU(hidden_features)
+        self.drop = nn.Dropout(drop)
+        self.fc2 = nn.Conv2d(hidden_features, out_features, kernel_size=1, bias=bias[1])
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.norm(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        return x
+
+
+class DYBlock(nn.Module):
+    def __init__(self, c1, c2, temperature=31):
+        super().__init__()
+        self.temperature = temperature
+        self.inception = InceptionDY(c1, c2, temperature=temperature)
+        self.mlp = ConvMlp(c2, c2, c2, drop=0.)
+
+    def forward(self, x):
+        return self.mlp(self.inception(x))
+
+    def update_temperature(self):
+        if self.temperature != 1:
+            self.temperature -= 2
+            print("temperature changed to {}".format(self.temperature))
+
 
 if __name__ == '__main__':
     in1 = torch.randn(4, 1024, 20, 20)
     in2 = torch.randn(4, 4, 64, 64, 3, 3)
-    model = InceptionDY(1024, 1024)
+    model = DYBlock(1024, 1024)
 
     with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True,
                  with_flops=True, with_modules=True) as prof:
