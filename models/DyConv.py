@@ -3,7 +3,6 @@ import torch
 import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers.helpers import to_2tuple
 from torch.profiler import profile, ProfilerActivity
 
 from models.common import DSigmoid, DReLU
@@ -38,7 +37,6 @@ class Attention_Fusion(nn.Module):
             w_1 = score[:, 0, :, :].view(b, 1, 1, 1)
             w_2 = score[:, 1, :, :].view(b, 1, 1, 1)
             return w_1, w_2
-
 
 
 class h_sigmoid(nn.Module):
@@ -178,7 +176,7 @@ class Channel_attn(nn.Module):
 
 class MMDyConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size=(3, 3), stride=1, padding=(0, 0), dilation=1, groups=1,
-                 reduction=0.0625, temperature=1, kernel_num=4):
+                 reduction=0.0625, temperature=None, kernel_num=8):
         super(MMDyConv2d, self).__init__()
         self.in_planes = in_planes
         self.out_planes = out_planes
@@ -311,8 +309,7 @@ class Dy_ELAN(nn.Module):
 class InceptionDY(nn.Module):
     """ Inception depthweise convolution
     """
-
-    def __init__(self, c1, c2, square_kernel_size=3, band_kernel_size=11, branch_ratio=0.125, temperature=31):
+    def __init__(self, c1, c2, square_kernel_size=3, band_kernel_size=13, branch_ratio=0.125, temperature=31):
         super().__init__()
 
         self.temperature = temperature
@@ -327,15 +324,7 @@ class InceptionDY(nn.Module):
 
     def forward(self, x):
         x_id, x_hw, x_w, x_h = torch.split(x, self.split_indexes, dim=1)
-        return torch.cat(
-            (x_id, self.dwconv_hw(x_hw), self.dwconv_w(x_w), self.dwconv_h(x_h)),
-            dim=1,
-        )
-
-    def update_temperature(self, f):
-        if self.temperature != 1:
-            self.temperature -= f
-            print("temperature changed to {}".format(self.temperature))
+        return torch.cat((x_id, self.dwconv_hw(x_hw), self.dwconv_w(x_w), self.dwconv_h(x_h)), dim=1)
 
 
 if __name__ == '__main__':
