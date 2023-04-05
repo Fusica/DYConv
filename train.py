@@ -401,7 +401,6 @@ def train(hyp, opt, device, tb_writer=None):
                                                   save_dir.glob('train*.jpg') if x.exists()]})
 
             # end batch ------------------------------------------------------------------------------------------------
-        model.update_temp()
         # end epoch ----------------------------------------------------------------------------------------------------
 
         # Scheduler
@@ -482,6 +481,13 @@ def train(hyp, opt, device, tb_writer=None):
                 del ckpt
 
         # end epoch ----------------------------------------------------------------------------------------------------
+        if epoch < 50:
+            model.update_temp(0.1)
+        elif epoch < 100:
+            model.update_temp(0.2)
+        else:
+            model.update_temp(0.3)
+
     # end training
     if rank in [-1, 0]:
         # Plots

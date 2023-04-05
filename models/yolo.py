@@ -741,14 +741,13 @@ class Model(nn.Module):
     def info(self, verbose=False, img_size=640):  # print model information
         model_info(self, verbose, img_size)
 
-    def update_temp(self):
+    def update_temp(self, f):
         for m in self.model:
             if isinstance(m, Dy_ELAN):
                 m.update_temperature()
             elif isinstance(m, InceptionDY):
-                m.update_temperature()
-            # elif isinstance(m, DYBlock):
-            #     m.update_temperature()
+                m.update_temperature(f)
+
 
 
 def parse_model(d, ch):  # model_dict, input_channels(3)
