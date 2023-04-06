@@ -250,61 +250,6 @@ class MMConv(nn.Module):
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
 
-    def fuseforward(self, x):
-        return self.act(self.conv(x))
-
-
-class Dy_ELAN(nn.Module):
-    def __init__(self, c1, c2, e=0.5, temperature=31):
-        super().__init__()
-        c_ = int(c1 * e)
-        self.temperature = temperature
-        self.cv1 = nn.Sequential(
-            nn.Conv2d(c1, c1, 1, bias=False),
-            DReLU(c1)
-        )
-        self.cv2 = nn.Sequential(
-            nn.Conv2d(c1, c_, 1, bias=False),
-            DReLU(c_)
-        )
-        self.m1 = nn.Sequential(
-            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
-        )
-        self.m2 = nn.Sequential(
-            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
-        )
-        self.m3 = nn.Sequential(
-            MMConv(c_, c_, (3, 3), 1, (1, 1), temperature=temperature)
-        )
-        self.m4 = DSConv(c_, c_, 13, 1, 6)
-        self.cv3 = nn.Sequential(
-            nn.Conv2d(4 * c_, c_, 1, bias=False),
-            nn.BatchNorm2d(c_),
-            DReLU(c_)
-        )
-        self.cv4 = nn.Sequential(
-            nn.Conv2d(2 * c_, c2, 1, bias=False),
-            nn.BatchNorm2d(c2),
-            DReLU(c2)
-        )
-
-    def update_temperature(self):
-        if self.temperature != 1:
-            self.temperature -= 0.2
-
-    def forward(self, x):
-        x1 = self.cv2(self.cv1(x))
-        x2 = self.m1(x1)
-        x3 = self.m2(x2)
-        x4 = self.m3(x3)
-        x_dy = torch.cat((x1, x2, x3, x4), dim=1)
-        x_dy = self.cv3(x_dy)
-
-        x_di = self.m4(x1)
-
-        x_all = torch.cat((x_dy, x_di), dim=1)
-        return self.cv4(x_all)
-
 
 class InceptionDY(nn.Module):
     """ Inception depthweise convolution
@@ -325,6 +270,11 @@ class InceptionDY(nn.Module):
     def forward(self, x):
         x_id, x_hw, x_w, x_h = torch.split(x, self.split_indexes, dim=1)
         return torch.cat((x_id, self.dwconv_hw(x_hw), self.dwconv_w(x_w), self.dwconv_h(x_h)), dim=1)
+
+    def update_temperature(self, f):
+        if self.temperature != 1:
+            self.temperature -= f
+            print("temperature changed to {}".format(self.temperature))
 
 
 if __name__ == '__main__':

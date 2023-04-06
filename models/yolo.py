@@ -741,6 +741,11 @@ class Model(nn.Module):
     def info(self, verbose=False, img_size=640):  # print model information
         model_info(self, verbose, img_size)
 
+    def update_temp(self, f):
+        for m in self.model:
+            if isinstance(m, InceptionDY):
+                m.update_temperature(f)
+
 
 def parse_model(d, ch):  # model_dict, input_channels(3)
     logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
@@ -768,8 +773,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                  RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC,
                  Ghost, GhostCSPA, GhostCSPB, GhostCSPC,
                  SwinTransformerBlock, STCSPA, STCSPB, STCSPC,
-                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, SPPCSPC_MA, SPPCSPC_Defor, Dy_ELAN,
-                 InceptionDY]:
+                 SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC, MSCA, SPPCSPC_MA, SPPCSPC_Defor, InceptionDY]:
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
