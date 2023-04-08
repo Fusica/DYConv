@@ -82,7 +82,7 @@ backbone:
 # yolov7 head
 head:
   [[-1, 1, SPPCSPC, [512]], # 51
-   [-1, 1, InceptionDY, [512]],
+   [-1, 1, DYModule, [512]],
   
    [-1, 1, Conv, [256, 1, 1]],
    [-1, 1, nn.Upsample, [None, 2, 'nearest']],

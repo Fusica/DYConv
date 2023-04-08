@@ -1,12 +1,34 @@
 import thop
+import math
 import torch
 import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.profiler import profile, ProfilerActivity
 
-from models.common import DSigmoid, DReLU
-from models.experimental import DSConv
+from models.common import Conv
+
+
+class DSigmoid(nn.Module):
+    def __init__(self):
+        super(DSigmoid, self).__init__()
+        self.alpha = nn.Parameter(torch.randn(1), requires_grad=True)
+        nn.init.constant_(self.alpha, math.pi / 2)
+
+    def forward(self, x):
+        return torch.atan(x / self.alpha) / math.pi + 1 / 2
+
+
+class DReLU(nn.Module):
+    def __init__(self, c1):
+        super().__init__()
+        self.p1 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
+        self.p2 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
+        self.sigmoid = DSigmoid()
+
+    def forward(self, x):
+        dpx = (self.p1 - self.p2) * x
+        return dpx * self.sigmoid(dpx) + self.p2 * x
 
 
 class Attention_Fusion(nn.Module):
@@ -176,7 +198,7 @@ class Channel_attn(nn.Module):
 
 class MMDyConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size=(3, 3), stride=1, padding=(0, 0), dilation=1, groups=1,
-                 reduction=0.0625, temperature=None, kernel_num=8):
+                 reduction=0.0625, temperature=None, kernel_num=4):
         super(MMDyConv2d, self).__init__()
         self.in_planes = in_planes
         self.out_planes = out_planes
@@ -254,7 +276,8 @@ class MMConv(nn.Module):
 class InceptionDY(nn.Module):
     """ Inception depthweise convolution
     """
-    def __init__(self, c1, c2, square_kernel_size=3, band_kernel_size=13, branch_ratio=0.125, temperature=31):
+
+    def __init__(self, c1, c2, square_kernel_size=3, band_kernel_size=11, branch_ratio=0.125, temperature=31):
         super().__init__()
 
         self.temperature = temperature
@@ -271,10 +294,24 @@ class InceptionDY(nn.Module):
         x_id, x_hw, x_w, x_h = torch.split(x, self.split_indexes, dim=1)
         return torch.cat((x_id, self.dwconv_hw(x_hw), self.dwconv_w(x_w), self.dwconv_h(x_h)), dim=1)
 
-    def update_temperature(self, f):
-        if self.temperature != 1:
-            self.temperature -= f
-            print("temperature changed to {}".format(self.temperature))
+
+class DYModule(nn.Module):
+    def __init__(self, c1, c2, n=3, e=0.5):
+        super().__init__()
+        self.c = int(c2 * e)
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)
+        self.m = nn.ModuleList(InceptionDY(self.c, self.c, square_kernel_size=3, band_kernel_size=11) for _ in range(n))
+
+    def forward(self, x):
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+
+    def forward_split(self, x):
+        y = list(self.cv1(x).split((self.c, self.c), 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
 
 
 if __name__ == '__main__':

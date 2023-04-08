@@ -481,11 +481,6 @@ def train(hyp, opt, device, tb_writer=None):
                 del ckpt
 
         # end epoch ----------------------------------------------------------------------------------------------------
-        if epoch < 50:
-            model.update_temp(0)
-        elif epoch < 150:
-            model.update_temp(3)
-
     # end training
 
     if rank in [-1, 0]:

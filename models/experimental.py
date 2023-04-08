@@ -8,7 +8,7 @@ import torch.nn as nn
 
 from models.CondConv import CondConv
 from models.DynamicConv import Dynamic_conv2d
-from models.common import Conv, DReLU
+from models.common import Conv
 from utils.google_utils import attempt_download
 
 

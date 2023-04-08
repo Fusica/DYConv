@@ -18,49 +18,6 @@ from utils.plots import color_list, plot_one_box
 from utils.torch_utils import time_synchronized
 
 
-##### acts ####
-class DSigmoid(nn.Module):
-    def __init__(self):
-        super(DSigmoid, self).__init__()
-        self.alpha = nn.Parameter(torch.randn(1), requires_grad=True)
-        nn.init.constant_(self.alpha, math.pi / 2)
-
-    def forward(self, x):
-        return torch.atan(x / self.alpha) / math.pi + 1 / 2
-
-
-class DReLU(nn.Module):
-    def __init__(self, c1):
-        super().__init__()
-        self.p1 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
-        self.p2 = nn.Parameter(torch.randn(1, c1, 1, 1), requires_grad=True)
-        self.sigmoid = DSigmoid()
-
-    def forward(self, x):
-        dpx = (self.p1 - self.p2) * x
-        return dpx * self.sigmoid(dpx) + self.p2 * x
-
-
-# class MetaReLU(nn.Module):
-#     def __init__(self, width, r=16):
-#         super().__init__()
-#         self.fc1 = nn.Conv2d(width, max(r, width // r), kernel_size=1, stride=1, bias=False)
-#         self.bn1 = nn.BatchNorm2d(max(r, width // r))
-#         self.fc2 = nn.Conv2d(max(r, width // r), width, kernel_size=1, stride=1, bias=False)
-#         self.bn2 = nn.BatchNorm2d(width)
-#
-#         self.act = DSigmoid()
-#
-#         self.p1 = nn.Parameter(torch.randn(1, width, 1, 1))
-#         self.p2 = nn.Parameter(torch.randn(1, width, 1, 1))
-#
-#     def forward(self, x):
-#         dpx = (self.p1 - self.p2) * x
-#         beta = self.act(
-#             self.bn2(self.fc2(self.bn1(self.fc1(x.mean(dim=2, keepdims=True).mean(dim=3, keepdims=True))))))
-#         return dpx * self.act(beta * dpx) + self.p1 * self.p2 * x
-
-
 ##### basic ####
 def autopad(k, p=None):  # kernel, padding
     # Pad to 'same'
